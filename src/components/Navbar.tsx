@@ -16,9 +16,15 @@ export default function Navbar({ search, setSearch, activeView, setActiveView }:
   const { user, profile, isAdmin, logout } = useAuth();
   const { totalItems } = useCart();
 
+  const handleLogout = async () => {
+    await logout();
+    setActiveView('store');
+    alert('Successfully Logged Out!');
+  };
+
   return (
     <header className="bg-[#2874f0] text-white sticky top-0 z-50 shadow-md">
-      <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
         {/* Brand Logo */}
         <button
           onClick={() => setActiveView('store')}
@@ -28,19 +34,19 @@ export default function Navbar({ search, setSearch, activeView, setActiveView }:
             <Pill className="w-6 h-6 text-[#2874f0]" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight leading-none">
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight leading-none">
               MedKart <span className="text-yellow-300 italic text-sm font-extrabold">B2B</span>
             </h1>
             <p className="text-[10px] text-blue-100 tracking-wide">Wholesale Pharma for RMP</p>
           </div>
         </button>
 
-        {/* Flipkart Style Search Bar */}
+        {/* Search Bar */}
         <div className="flex-1 max-w-2xl order-3 md:order-2 w-full">
           <div className="relative flex items-center">
             <input
               type="text"
-              placeholder="Search Medicines by Brand (Dolo 650), Salt (Paracetamol), or Company..."
+              placeholder="Search Medicine Brand (Dolo 650), Salt (Paracetamol), or Company..."
               className="w-full py-2 px-4 pr-10 rounded-sm bg-white text-gray-800 text-sm focus:outline-none shadow-sm"
               value={search}
               onChange={(e) => {
@@ -53,34 +59,35 @@ export default function Navbar({ search, setSearch, activeView, setActiveView }:
         </div>
 
         {/* Right Navigation */}
-        <div className="flex items-center gap-4 order-2 md:order-3 text-sm font-medium">
+        <div className="flex items-center gap-2 sm:gap-3 order-2 md:order-3 text-xs sm:text-sm font-medium">
           {isAdmin && (
             <button
               onClick={() => setActiveView('admin')}
-              className={`px-3 py-1.5 rounded-sm font-bold flex items-center gap-1.5 transition ${
+              className={`px-2.5 py-1.5 rounded-sm font-bold flex items-center gap-1 transition ${
                 activeView === 'admin'
                   ? 'bg-yellow-300 text-blue-950'
                   : 'bg-yellow-400 text-blue-900 hover:bg-yellow-300'
               }`}
             >
-              <LayoutDashboard className="w-4 h-4" /> Admin
+              <LayoutDashboard className="w-4 h-4" />
+              <span>Admin</span>
             </button>
           )}
 
           {user ? (
-            <div className="flex items-center gap-3">
-              <div className="hidden lg:flex flex-col items-end leading-tight">
+            <>
+              <div className="hidden lg:flex flex-col items-end leading-tight mr-1">
                 <span className="text-xs font-bold flex items-center gap-1">
-                  {profile?.clinicName || 'Doctor'}
+                  {profile?.clinicName || user.email}
                   {profile?.verified && <ShieldCheck className="w-3.5 h-3.5 text-yellow-300" />}
                 </span>
-                <span className="text-[10px] text-blue-100">RMP: {profile?.rmpNo || 'Pending'}</span>
+                <span className="text-[10px] text-blue-100">RMP: {profile?.rmpNo || 'Verified'}</span>
               </div>
 
               <button
                 onClick={() => setActiveView('orders')}
-                className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-700 ${
-                  activeView === 'orders' ? 'bg-blue-700' : ''
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-sm hover:bg-blue-700 ${
+                  activeView === 'orders' ? 'bg-blue-800' : ''
                 }`}
               >
                 <Package className="w-4 h-4" />
@@ -88,20 +95,17 @@ export default function Navbar({ search, setSearch, activeView, setActiveView }:
               </button>
 
               <button
-                onClick={() => {
-                  logout();
-                  setActiveView('store');
-                }}
-                title="Logout"
-                className="p-1.5 hover:bg-blue-700 rounded text-blue-100 hover:text-white"
+                onClick={handleLogout}
+                className="bg-red-500 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-sm font-bold flex items-center gap-1 shadow-sm"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
               </button>
-            </div>
+            </>
           ) : (
             <button
               onClick={() => setActiveView('auth')}
-              className="bg-white text-[#2874f0] px-5 py-1.5 rounded-sm font-bold hover:bg-blue-50 shadow-sm"
+              className="bg-white text-[#2874f0] px-4 py-1.5 rounded-sm font-bold hover:bg-blue-50 shadow-sm"
             >
               RMP Login
             </button>
@@ -110,12 +114,14 @@ export default function Navbar({ search, setSearch, activeView, setActiveView }:
           {/* Cart Button */}
           <button
             onClick={() => setActiveView('cart')}
-            className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded hover:bg-blue-700 font-semibold"
+            className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm hover:bg-blue-700 font-semibold ${
+              activeView === 'cart' ? 'bg-blue-800' : ''
+            }`}
           >
-            <ShoppingCart className="w-5 h-5" />
-            <span>Cart</span>
+            <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="hidden sm:inline">Cart</span>
             {totalItems > 0 && (
-              <span className="bg-[#ff6161] text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full border border-white">
+              <span className="bg-[#ff6161] text-white text-[11px] font-bold px-1.5 rounded-full border border-white">
                 {totalItems}
               </span>
             )}
