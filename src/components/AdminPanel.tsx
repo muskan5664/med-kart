@@ -1,31 +1,69 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { PlusCircle, Trash2, CheckCircle, ShieldAlert, Database, PackageCheck, Users, Pill } from 'lucide-react';
+import { PlusCircle, Trash2, CheckCircle, ShieldAlert, Database, PackageCheck, Users, Pill, Pencil, X, ImagePlus } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Medicine, Order, UserProfile } from '../types';
 import { INITIAL_MEDICINES } from '../data/initialMedicines';
 
+const EMPTY_MED = {
+  name: '',
+  salt: '',
+  company: '',
+  category: 'Tablets',
+  mrp: '',
+  ptr: '',
+  gst: '12',
+  stock: '200',
+  expiry: '12/2028',
+  packing: '10 Tabs / Strip',
+  imageUrl: ''
+};
+
+// Built-in lightweight image compressor (No extra storage bucket needed)
+const compressMedicineImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 450;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > MAX_SIZE) {
+          height *= MAX_SIZE / width;
+          width = MAX_SIZE;
+        } else if (height > MAX_SIZE) {
+          width *= MAX_SIZE / height;
+          height = MAX_SIZE;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      img.onerror = reject;
+    };
+    reader.onerror = reject;
+  });
+};
+
 export default function AdminPanel() {
   const { isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('catalog');
   const [products, setProducts] = useState<Medicine[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [seeding, setSeeding] = useState(false);
 
-  const [newMed, setNewMed] = useState({
-    name: '',
-    salt: '',
-    company: '',
-    category: 'Tablets',
-    mrp: '',
-    ptr: '',
-    gst: '12',
-    stock: '200',
-    expiry: '12/2028',
-    packing: '10 Tabs / Strip'
-  });
+  const [medForm, setMedForm] = useState(EMPTY_MED);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const loadAdminData = async () => {
     const pSnap = await getDocs(collection(db, 'products'));
@@ -53,54 +91,86 @@ export default function AdminPanel() {
     );
   }
 
-  // 1-Click Seed Initial Medicines to Firestore
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressedBase64 = await compressMedicineImage(file);
+      setMedForm((prev) => ({ ...prev, imageUrl: compressedBase64 }));
+    } catch {
+      alert('Photo process karne me problem aayi, doosri photo try karein.');
+    }
+  };
+
   const handleSeedCatalog = async () => {
-    if (!window.confirm('Kya aap 6 sample medicines Firestore database me add karna chahte hain?')) return;
+    if (!window.confirm('Kya aap 6 sample medicines database me add karna chahte hain?')) return;
     setSeeding(true);
     try {
       for (const item of INITIAL_MEDICINES) {
         await addDoc(collection(db, 'products'), item);
       }
       await loadAdminData();
-      alert('Sample medicines database me add ho gayi hain!');
+      alert('Sample medicines add ho gayi hain!');
     } finally {
       setSeeding(false);
     }
   };
 
-  const handleAddMedicine = async (e: React.FormEvent) => {
+  const handleSaveMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addDoc(collection(db, 'products'), {
-      name: newMed.name.trim(),
-      salt: newMed.salt.trim(),
-      company: newMed.company.trim(),
-      category: newMed.category,
-      mrp: Number(newMed.mrp),
-      ptr: Number(newMed.ptr),
-      gst: Number(newMed.gst),
-      stock: Number(newMed.stock),
-      expiry: newMed.expiry.trim(),
-      packing: newMed.packing.trim()
-    });
-    setNewMed({
-      name: '',
-      salt: '',
-      company: '',
-      category: 'Tablets',
-      mrp: '',
-      ptr: '',
-      gst: '12',
-      stock: '200',
-      expiry: '12/2028',
-      packing: '10 Tabs / Strip'
-    });
+    const payload = {
+      name: medForm.name.trim(),
+      salt: medForm.salt.trim(),
+      company: medForm.company.trim(),
+      category: medForm.category,
+      mrp: Number(medForm.mrp),
+      ptr: Number(medForm.ptr),
+      gst: Number(medForm.gst),
+      stock: Number(medForm.stock),
+      expiry: medForm.expiry.trim(),
+      packing: medForm.packing.trim(),
+      imageUrl: medForm.imageUrl || ''
+    };
+
+    if (editingId) {
+      await updateDoc(doc(db, 'products', editingId), payload);
+      alert('Medicine details & photo updated!');
+    } else {
+      await addDoc(collection(db, 'products'), payload);
+      alert('New medicine added!');
+    }
+
+    setMedForm(EMPTY_MED);
+    setEditingId(null);
     loadAdminData();
-    alert('Medicine successfully added!');
+  };
+
+  const startEditMedicine = (p: Medicine) => {
+    setEditingId(p.id);
+    setMedForm({
+      name: p.name,
+      salt: p.salt,
+      company: p.company,
+      category: p.category,
+      mrp: String(p.mrp),
+      ptr: String(p.ptr),
+      gst: String(p.gst || 12),
+      stock: String(p.stock),
+      expiry: p.expiry,
+      packing: p.packing || '10 Tabs / Strip',
+      imageUrl: p.imageUrl || ''
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setMedForm(EMPTY_MED);
   };
 
   const handleDeleteMedicine = async (id: string) => {
-    if (!window.confirm('Delete this medicine?')) return;
+    if (!window.confirm('Kya aap is medicine ko delete karna chahte hain?')) return;
     await deleteDoc(doc(db, 'products', id));
+    if (editingId === id) cancelEdit();
     loadAdminData();
   };
 
@@ -123,7 +193,7 @@ export default function AdminPanel() {
 
   return (
     <div className="space-y-5">
-      {/* Top KPI Summary Cards */}
+      {/* Top KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-[#2874f0]">
           <p className="text-xs text-gray-500 font-bold uppercase">Total Orders</p>
@@ -134,7 +204,7 @@ export default function AdminPanel() {
           <p className="text-2xl font-extrabold text-emerald-700 mt-1">₹{totalRevenue}</p>
         </div>
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-amber-500">
-          <p className="text-xs text-gray-500 font-bold uppercase">Active Medicines</p>
+          <p className="text-xs text-gray-500 font-bold uppercase">Medicines in Stock</p>
           <p className="text-2xl font-extrabold text-gray-900 mt-1">{products.length}</p>
         </div>
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-purple-500">
@@ -143,9 +213,17 @@ export default function AdminPanel() {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
+      {/* Tabs Bar */}
       <div className="bg-white p-3 rounded-md shadow-sm border flex flex-wrap justify-between items-center gap-3">
         <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('catalog')}
+            className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 ${
+              activeTab === 'catalog' ? 'bg-[#2874f0] text-white' : 'bg-gray-100 text-gray-700'
+            }`}
+          >
+            <Pill className="w-4 h-4" /> Add / Edit Medicines ({products.length})
+          </button>
           <button
             onClick={() => setActiveTab('orders')}
             className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 ${
@@ -153,14 +231,6 @@ export default function AdminPanel() {
             }`}
           >
             <PackageCheck className="w-4 h-4" /> Manage Orders ({orders.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('catalog')}
-            className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 ${
-              activeTab === 'catalog' ? 'bg-[#2874f0] text-white' : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            <Pill className="w-4 h-4" /> Medicines Stock ({products.length})
           </button>
           <button
             onClick={() => setActiveTab('doctors')}
@@ -183,7 +253,185 @@ export default function AdminPanel() {
         )}
       </div>
 
-      {/* TAB 1: MANAGE ORDERS */}
+      {/* TAB 1: ADD / EDIT MEDICINES WITH PHOTO */}
+      {activeTab === 'catalog' && (
+        <div className="grid lg:grid-cols-3 gap-6">
+          <form onSubmit={handleSaveMedicine} className="bg-white p-5 rounded-md shadow-sm border space-y-3 text-xs h-fit">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-sm font-bold text-[#2874f0] flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4" />
+                {editingId ? 'Edit Medicine Details' : 'Add New Medicine'}
+              </h3>
+              {editingId && (
+                <button type="button" onClick={cancelEdit} className="text-red-500 flex items-center gap-0.5 font-bold">
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </button>
+              )}
+            </div>
+
+            {/* Medicine Photo Upload & Preview */}
+            <div className="border border-dashed border-gray-300 rounded-sm p-3 bg-gray-50">
+              <label className="font-bold text-gray-700 block mb-1.5 flex items-center gap-1">
+                <ImagePlus className="w-4 h-4 text-[#2874f0]" /> Medicine Photo (Strip / Box / Bottle)
+              </label>
+              <div className="flex items-center gap-3">
+                {medForm.imageUrl ? (
+                  <div className="relative w-16 h-16 bg-white border rounded overflow-hidden shrink-0">
+                    <img src={medForm.imageUrl} alt="Preview" className="w-full h-full object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setMedForm({ ...medForm, imageUrl: '' })}
+                      className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 bg-white border rounded flex items-center justify-center text-gray-300 shrink-0">
+                    <Pill className="w-6 h-6" />
+                  </div>
+                )}
+                <div className="flex-1 space-y-1.5">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="block w-full text-[11px] text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-sm file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-[#2874f0] hover:file:bg-blue-100"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Ya direct Image URL paste karein..."
+                    className="w-full border bg-white p-1.5 rounded-sm text-[11px]"
+                    value={medForm.imageUrl.startsWith('data:') ? '' : medForm.imageUrl}
+                    onChange={(e) => setMedForm({ ...medForm, imageUrl: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="font-bold text-gray-600 block mb-1">Brand Name *</label>
+              <input type="text" required placeholder="e.g. Dolo 650mg Tablet" className="w-full border p-2 rounded-sm" value={medForm.name} onChange={(e) => setMedForm({ ...medForm, name: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="font-bold text-gray-600 block mb-1">Salt / Composition *</label>
+              <input type="text" required placeholder="e.g. Paracetamol IP 650mg" className="w-full border p-2 rounded-sm" value={medForm.salt} onChange={(e) => setMedForm({ ...medForm, salt: e.target.value })} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Company *</label>
+                <input type="text" required placeholder="Micro Labs" className="w-full border p-2 rounded-sm" value={medForm.company} onChange={(e) => setMedForm({ ...medForm, company: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Category *</label>
+                <select className="w-full border p-2 rounded-sm" value={medForm.category} onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}>
+                  <option>Tablets</option>
+                  <option>Syrups</option>
+                  <option>Injections</option>
+                  <option>Antibiotics</option>
+                  <option>Surgical</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">MRP (₹) *</label>
+                <input type="number" step="0.01" required placeholder="120" className="w-full border p-2 rounded-sm" value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">RMP PTR (₹) *</label>
+                <input type="number" step="0.01" required placeholder="78" className="w-full border p-2 rounded-sm" value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">GST %</label>
+                <select className="w-full border p-2 rounded-sm" value={medForm.gst} onChange={(e) => setMedForm({ ...medForm, gst: e.target.value })}>
+                  <option value="5">5%</option>
+                  <option value="12">12%</option>
+                  <option value="18">18%</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Stock Qty</label>
+                <input type="number" required className="w-full border p-2 rounded-sm" value={medForm.stock} onChange={(e) => setMedForm({ ...medForm, stock: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Expiry *</label>
+                <input type="text" required placeholder="10/2028" className="w-full border p-2 rounded-sm" value={medForm.expiry} onChange={(e) => setMedForm({ ...medForm, expiry: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Packing</label>
+                <input type="text" placeholder="10 Tabs" className="w-full border p-2 rounded-sm" value={medForm.packing} onChange={(e) => setMedForm({ ...medForm, packing: e.target.value })} />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className={`w-full text-white font-bold py-2.5 rounded-sm uppercase ${
+                editingId ? 'bg-[#2874f0] hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}
+            >
+              {editingId ? 'Update Medicine Details' : 'Save Medicine to Store'}
+            </button>
+          </form>
+
+          {/* Existing Stock List with Thumbnail, Edit & Delete */}
+          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-2 max-h-[650px] overflow-y-auto">
+            <h3 className="text-sm font-bold text-gray-700 border-b pb-2 mb-2">
+              Current Wholesale Catalog ({products.length})
+            </h3>
+            {products.map((p) => (
+              <div
+                key={p.id}
+                className={`flex justify-between items-center border p-3 rounded-sm text-xs gap-3 ${
+                  editingId === p.id ? 'border-[#2874f0] bg-blue-50/50' : 'hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gray-50 border rounded flex items-center justify-center overflow-hidden shrink-0">
+                    {p.imageUrl ? (
+                      <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" />
+                    ) : (
+                      <Pill className="w-5 h-5 text-gray-300" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900 text-sm">
+                      {p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span>
+                    </p>
+                    <p className="text-gray-500">{p.salt} • Exp: {p.expiry} • {p.packing}</p>
+                    <p className="mt-1 font-semibold text-[#2874f0]">
+                      PTR: ₹{p.ptr} | MRP: ₹{p.mrp} | Stock: {p.stock}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => startEditMedicine(p)}
+                    className="text-[#2874f0] hover:bg-blue-100 p-2 rounded flex items-center gap-1 font-bold"
+                  >
+                    <Pencil className="w-4 h-4" /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteMedicine(p.id)}
+                    className="text-red-500 hover:bg-red-50 p-2 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: MANAGE ORDERS */}
       {activeTab === 'orders' && (
         <div className="space-y-3">
           {orders.length === 0 ? (
@@ -240,107 +488,6 @@ export default function AdminPanel() {
               </div>
             ))
           )}
-        </div>
-      )}
-
-      {/* TAB 2: ADD & MANAGE MEDICINES */}
-      {activeTab === 'catalog' && (
-        <div className="grid lg:grid-cols-3 gap-6">
-          <form onSubmit={handleAddMedicine} className="bg-white p-5 rounded-md shadow-sm border space-y-3 text-xs h-fit">
-            <h3 className="text-sm font-bold text-[#2874f0] flex items-center gap-1.5 border-b pb-2">
-              <PlusCircle className="w-4 h-4" /> Add New Wholesale Medicine
-            </h3>
-
-            <div>
-              <label className="font-bold text-gray-600 block mb-1">Brand Name *</label>
-              <input type="text" required placeholder="e.g. Dolo 650mg Tablet" className="w-full border p-2 rounded-sm" value={newMed.name} onChange={(e) => setNewMed({ ...newMed, name: e.target.value })} />
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-600 block mb-1">Salt / Composition *</label>
-              <input type="text" required placeholder="e.g. Paracetamol IP 650mg" className="w-full border p-2 rounded-sm" value={newMed.salt} onChange={(e) => setNewMed({ ...newMed, salt: e.target.value })} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Company *</label>
-                <input type="text" required placeholder="Micro Labs" className="w-full border p-2 rounded-sm" value={newMed.company} onChange={(e) => setNewMed({ ...newMed, company: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Category *</label>
-                <select className="w-full border p-2 rounded-sm" value={newMed.category} onChange={(e) => setNewMed({ ...newMed, category: e.target.value })}>
-                  <option>Tablets</option>
-                  <option>Syrups</option>
-                  <option>Injections</option>
-                  <option>Antibiotics</option>
-                  <option>Surgical</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">MRP (₹) *</label>
-                <input type="number" step="0.01" required placeholder="120" className="w-full border p-2 rounded-sm" value={newMed.mrp} onChange={(e) => setNewMed({ ...newMed, mrp: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">RMP PTR (₹) *</label>
-                <input type="number" step="0.01" required placeholder="78" className="w-full border p-2 rounded-sm" value={newMed.ptr} onChange={(e) => setNewMed({ ...newMed, ptr: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">GST %</label>
-                <select className="w-full border p-2 rounded-sm" value={newMed.gst} onChange={(e) => setNewMed({ ...newMed, gst: e.target.value })}>
-                  <option value="5">5%</option>
-                  <option value="12">12%</option>
-                  <option value="18">18%</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Stock Qty</label>
-                <input type="number" required className="w-full border p-2 rounded-sm" value={newMed.stock} onChange={(e) => setNewMed({ ...newMed, stock: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Expiry *</label>
-                <input type="text" required placeholder="10/2028" className="w-full border p-2 rounded-sm" value={newMed.expiry} onChange={(e) => setNewMed({ ...newMed, expiry: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Packing</label>
-                <input type="text" placeholder="10 Tabs" className="w-full border p-2 rounded-sm" value={newMed.packing} onChange={(e) => setNewMed({ ...newMed, packing: e.target.value })} />
-              </div>
-            </div>
-
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-sm uppercase">
-              Save Medicine to Store
-            </button>
-          </form>
-
-          {/* Existing Stock List */}
-          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-2 max-h-[600px] overflow-y-auto">
-            <h3 className="text-sm font-bold text-gray-700 border-b pb-2 mb-2">Current Wholesale Catalog</h3>
-            {products.map((p) => (
-              <div key={p.id} className="flex justify-between items-center border p-3 rounded-sm text-xs hover:bg-gray-50">
-                <div>
-                  <p className="font-bold text-gray-900 text-sm">
-                    {p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span>
-                  </p>
-                  <p className="text-gray-500">{p.salt} • Exp: {p.expiry}</p>
-                  <p className="mt-1 font-semibold text-[#2874f0]">
-                    PTR: ₹{p.ptr} | MRP: ₹{p.mrp} | Stock: {p.stock}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleDeleteMedicine(p.id)}
-                  className="text-red-500 hover:bg-red-50 p-2 rounded"
-                  title="Delete Medicine"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
