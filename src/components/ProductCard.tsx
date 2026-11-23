@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Minus, Building2, Calendar, PackageCheck } from 'lucide-react';
+import { Plus, Minus, Building2, Calendar, PackageCheck, Pill } from 'lucide-react';
 import { Medicine } from '../types';
 import { useCart } from '../context/CartContext';
 
@@ -11,7 +11,6 @@ export default function ProductCard({ item }: ProductCardProps) {
   const { cart, addToCart, updateQty } = useCart();
   const inCart = cart.find((c) => c.id === item.id);
 
-  // Doctor profit margin calculation
   const marginPercent = Math.round(((item.mrp - item.ptr) / item.mrp) * 100);
   const profitPerUnit = (item.mrp - item.ptr).toFixed(2);
 
@@ -28,6 +27,22 @@ export default function ProductCard({ item }: ProductCardProps) {
           </span>
         </div>
 
+        {/* Medicine Product Image */}
+        <div className="w-full h-36 bg-gray-50 rounded-sm mb-3 flex items-center justify-center overflow-hidden border border-gray-100">
+          {item.imageUrl ? (
+            <img
+              src={item.imageUrl}
+              alt={item.name}
+              className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-200"
+            />
+          ) : (
+            <div className="flex flex-col items-center text-gray-300">
+              <Pill className="w-10 h-10 mb-1" />
+              <span className="text-[10px] font-medium text-gray-400">No Image</span>
+            </div>
+          )}
+        </div>
+
         {/* Brand & Salt Name */}
         <h3 className="font-bold text-gray-900 text-base group-hover:text-[#2874f0] transition-colors line-clamp-1">
           {item.name}
@@ -36,8 +51,8 @@ export default function ProductCard({ item }: ProductCardProps) {
           {item.salt}
         </p>
 
-        {/* Meta Info: Company, Packing, Expiry */}
-        <div className="mt-3 space-y-1 text-[11px] text-gray-500 bg-gray-50 p-2 rounded">
+        {/* Meta Info */}
+        <div className="mt-2.5 space-y-1 text-[11px] text-gray-500 bg-gray-50 p-2 rounded">
           <div className="flex items-center gap-1.5">
             <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
             <span className="truncate">{item.company}</span>
@@ -89,7 +104,6 @@ export default function ProductCard({ item }: ProductCardProps) {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            {/* Quick Bulk Add Buttons for Doctors */}
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 onClick={() => updateQty(item.id, 5)}
