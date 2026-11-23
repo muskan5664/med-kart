@@ -1,16 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { PlusCircle, Trash2, CheckCircle, ShieldAlert, Database, PackageCheck, Users, Pill, Pencil, X, ImagePlus } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { PlusCircle, Trash2, CheckCircle, ShieldAlert, PackageCheck, Users, Pill, Pencil, X, ImagePlus, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Medicine, Order, UserProfile } from '../types';
-import { INITIAL_MEDICINES } from '../data/initialMedicines';
 
 const EMPTY_MED = {
   name: '',
   salt: '',
   company: '',
-  category: 'Tablets',
+  category: 'Tablets & Caps',
   mrp: '',
   ptr: '',
   gst: '12',
@@ -20,7 +19,16 @@ const EMPTY_MED = {
   imageUrl: ''
 };
 
-// Built-in lightweight image compressor (No extra storage bucket needed)
+function detectCategory(name: string, salt: string, company: string): string {
+  const text = `${name} ${salt} ${company}`.toUpperCase();
+  if (text.includes('(VET)') || text.includes('BOLUS') || text.includes('VETERINARY')) return 'Veterinary';
+  if (text.includes('INJ') || text.includes('VIAL') || text.includes('AMP') || text.includes('INFUSION') || text.includes('500ML.')) return 'Injections';
+  if (text.includes('SYP') || text.includes('SYRUP') || text.includes('SUSP') || text.includes('DROP') || text.includes('LIQ') || text.includes('SOLN')) return 'Syrups & Drops';
+  if (text.includes('CREAM') || text.includes('OINT') || text.includes('GEL') || text.includes('LOTION') || text.includes('SOAP') || text.includes('SHAMPOO')) return 'Ointments & Derma';
+  if (text.includes('SYRINGE') || text.includes('BANDAGE') || text.includes('TAPE') || text.includes('SURGICAL') || text.includes('PAD') || text.includes('DIAPER') || text.includes('IV SET')) return 'Surgical & Care';
+  return 'Tablets & Caps';
+}
+
 const compressMedicineImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -58,30 +66,118 @@ export default function AdminPanel() {
   const { isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('catalog');
   const [products, setProducts] = useState<Medicine[]>([]);
+  const [firestoreIds, setFirestoreIds] = useState<Set<string>>(new Set());
   const [orders, setOrders] = useState<Order[]>([]);
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
-  const [seeding, setSeeding] = useState(false);
+  const [loadingCatalog, setLoadingCatalog] = useState(true);
+
+  // Search & Pagination inside Admin Catalog
+  const [adminSearch, setAdminSearch] = useState('');
+  const [adminPage, setAdminPage] = useState(1);
+  const ADMIN_PAGE_SIZE = 20;
 
   const [medForm, setMedForm] = useState(EMPTY_MED);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const loadAdminData = async () => {
-    const pSnap = await getDocs(collection(db, 'products'));
-    setProducts(pSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine)));
+    setLoadingCatalog(true);
+    try {
+      // 1. Fetch Firestore Custom/Edited Medicines
+      const pSnap = await getDocs(collection(db, 'products'));
+      const fsList = pSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine));
+      const fsIdSet = new Set(fsList.map((item) => item.id));
+      setFirestoreIds(fsIdSet);
 
-    const oSnap = await getDocs(collection(db, 'orders'));
-    const oList = oSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() } as Order))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    setOrders(oList);
+      // 2. Fetch Static 8000+ medicines.json
+      let staticList: Medicine[] = [];
+      try {
+        const res = await fetch('/medicines.json');
+        if (res.ok) {
+          const rawData = await res.json();
+          if (Array.isArray(rawData)) {
+            const seenNames = new Map<string, Medicine>();
+            rawData.forEach((row: any, index: number) => {
+              if (Array.isArray(row)) {
+                const rawName = String(row[0] || '').trim();
+                const salt = row[1] ? String(row[1]).trim() : '';
+                const packing = row[2] ? String(row[2]).trim() : '1 Unit';
+                const company = row[3] ? String(row[3]).trim() : 'Standard Pharma';
+                const rawPrice = row[5] ? String(row[5]).replace(/[^0-9.]/g, '') : '';
+                const expiry = row[6] && row[6] !== '/' ? String(row[6]).trim() : '12/2028';
+                const closingStock = Number(row[10] ?? 50);
 
-    const uSnap = await getDocs(collection(db, 'users'));
-    setDoctors(uSnap.docs.map((d) => ({ uid: d.id, ...d.data() } as UserProfile)));
+                if (!rawName || !salt || rawName.includes('COD CHARGE') || rawName.includes('CASH ETRA')) return;
+
+                const mrp = parseFloat(rawPrice) || 50;
+                const ptr = Number((mrp * 0.75).toFixed(2));
+                const stock = closingStock > 0 ? Math.ceil(closingStock) : 50;
+                const key = `${rawName.toUpperCase()}_${packing.toUpperCase()}`;
+
+                if (!seenNames.has(key)) {
+                  seenNames.set(key, {
+                    id: `med-${index}`,
+                    name: rawName,
+                    salt,
+                    company,
+                    category: detectCategory(rawName, salt, company),
+                    mrp,
+                    ptr,
+                    gst: 12,
+                    stock,
+                    expiry,
+                    packing
+                  });
+                }
+              }
+            });
+            // Exclude static items that were already edited & saved into Firestore
+            staticList = Array.from(seenNames.values()).filter((item) => !fsIdSet.has(item.id));
+          }
+        }
+      } catch (e) {
+        console.warn('Could not load static medicines.json in admin:', e);
+      }
+
+      setProducts([...fsList, ...staticList]);
+
+      // 3. Load Orders & RMPs
+      const oSnap = await getDocs(collection(db, 'orders'));
+      const oList = oSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Order))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setOrders(oList);
+
+      const uSnap = await getDocs(collection(db, 'users'));
+      setDoctors(uSnap.docs.map((d) => ({ uid: d.id, ...d.data() } as UserProfile)));
+    } finally {
+      setLoadingCatalog(false);
+    }
   };
 
   useEffect(() => {
     if (isAdmin) loadAdminData();
   }, [isAdmin]);
+
+  useEffect(() => {
+    setAdminPage(1);
+  }, [adminSearch]);
+
+  const filteredAdminProducts = useMemo(() => {
+    const q = adminSearch.toLowerCase().trim();
+    if (!q) return products;
+    return products.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.salt.toLowerCase().includes(q) ||
+        p.company.toLowerCase().includes(q)
+    );
+  }, [products, adminSearch]);
+
+  const totalAdminPages = Math.ceil(filteredAdminProducts.length / ADMIN_PAGE_SIZE);
+  const paginatedAdminProducts = filteredAdminProducts.slice(
+    (adminPage - 1) * ADMIN_PAGE_SIZE,
+    adminPage * ADMIN_PAGE_SIZE
+  );
 
   if (!isAdmin) {
     return (
@@ -102,20 +198,6 @@ export default function AdminPanel() {
     }
   };
 
-  const handleSeedCatalog = async () => {
-    if (!window.confirm('Kya aap 6 sample medicines database me add karna chahte hain?')) return;
-    setSeeding(true);
-    try {
-      for (const item of INITIAL_MEDICINES) {
-        await addDoc(collection(db, 'products'), item);
-      }
-      await loadAdminData();
-      alert('Sample medicines add ho gayi hain!');
-    } finally {
-      setSeeding(false);
-    }
-  };
-
   const handleSaveMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
@@ -133,7 +215,8 @@ export default function AdminPanel() {
     };
 
     if (editingId) {
-      await updateDoc(doc(db, 'products', editingId), payload);
+      // Save/Override directly into Firestore using same ID so it updates both Admin & Store
+      await setDoc(doc(db, 'products', editingId), payload, { merge: true });
       alert('Medicine details & photo updated!');
     } else {
       await addDoc(collection(db, 'products'), payload);
@@ -160,6 +243,7 @@ export default function AdminPanel() {
       packing: p.packing || '10 Tabs / Strip',
       imageUrl: p.imageUrl || ''
     });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const cancelEdit = () => {
@@ -168,7 +252,11 @@ export default function AdminPanel() {
   };
 
   const handleDeleteMedicine = async (id: string) => {
-    if (!window.confirm('Kya aap is medicine ko delete karna chahte hain?')) return;
+    if (!firestoreIds.has(id)) {
+      alert('Yeh medicine static medicines.json se aa rahi hai. Aap isko Edit karke rate/photo badal sakte hain.');
+      return;
+    }
+    if (!window.confirm('Kya aap is custom medicine ko delete karna chahte hain?')) return;
     await deleteDoc(doc(db, 'products', id));
     if (editingId === id) cancelEdit();
     loadAdminData();
@@ -204,8 +292,8 @@ export default function AdminPanel() {
           <p className="text-2xl font-extrabold text-emerald-700 mt-1">₹{totalRevenue}</p>
         </div>
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-amber-500">
-          <p className="text-xs text-gray-500 font-bold uppercase">Medicines in Stock</p>
-          <p className="text-2xl font-extrabold text-gray-900 mt-1">{products.length}</p>
+          <p className="text-xs text-gray-500 font-bold uppercase">Total Catalog Items</p>
+          <p className="text-2xl font-extrabold text-gray-900 mt-1">{products.length.toLocaleString()}</p>
         </div>
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-purple-500">
           <p className="text-xs text-gray-500 font-bold uppercase">Registered RMPs</p>
@@ -222,7 +310,7 @@ export default function AdminPanel() {
               activeTab === 'catalog' ? 'bg-[#2874f0] text-white' : 'bg-gray-100 text-gray-700'
             }`}
           >
-            <Pill className="w-4 h-4" /> Add / Edit Medicines ({products.length})
+            <Pill className="w-4 h-4" /> Add / Edit Medicines ({products.length.toLocaleString()})
           </button>
           <button
             onClick={() => setActiveTab('orders')}
@@ -241,16 +329,6 @@ export default function AdminPanel() {
             <Users className="w-4 h-4" /> RMP Verification ({doctors.length})
           </button>
         </div>
-
-        {products.length === 0 && (
-          <button
-            disabled={seeding}
-            onClick={handleSeedCatalog}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5"
-          >
-            <Database className="w-4 h-4" /> {seeding ? 'Seeding...' : 'Load 6 Sample Medicines'}
-          </button>
-        )}
       </div>
 
       {/* TAB 1: ADD / EDIT MEDICINES WITH PHOTO */}
@@ -260,7 +338,7 @@ export default function AdminPanel() {
             <div className="flex justify-between items-center border-b pb-2">
               <h3 className="text-sm font-bold text-[#2874f0] flex items-center gap-1.5">
                 <PlusCircle className="w-4 h-4" />
-                {editingId ? 'Edit Medicine Details' : 'Add New Medicine'}
+                {editingId ? 'Edit Medicine & Photo' : 'Add New Medicine'}
               </h3>
               {editingId && (
                 <button type="button" onClick={cancelEdit} className="text-red-500 flex items-center gap-0.5 font-bold">
@@ -327,11 +405,12 @@ export default function AdminPanel() {
               <div>
                 <label className="font-bold text-gray-600 block mb-1">Category *</label>
                 <select className="w-full border p-2 rounded-sm" value={medForm.category} onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}>
-                  <option>Tablets</option>
-                  <option>Syrups</option>
+                  <option>Tablets & Caps</option>
+                  <option>Syrups & Drops</option>
                   <option>Injections</option>
-                  <option>Antibiotics</option>
-                  <option>Surgical</option>
+                  <option>Ointments & Derma</option>
+                  <option>Surgical & Care</option>
+                  <option>Veterinary</option>
                 </select>
               </div>
             </div>
@@ -376,57 +455,102 @@ export default function AdminPanel() {
                 editingId ? 'bg-[#2874f0] hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
               }`}
             >
-              {editingId ? 'Update Medicine Details' : 'Save Medicine to Store'}
+              {editingId ? 'Update Medicine & Save' : 'Save New Medicine'}
             </button>
           </form>
 
-          {/* Existing Stock List with Thumbnail, Edit & Delete */}
-          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-2 max-h-[650px] overflow-y-auto">
-            <h3 className="text-sm font-bold text-gray-700 border-b pb-2 mb-2">
-              Current Wholesale Catalog ({products.length})
-            </h3>
-            {products.map((p) => (
-              <div
-                key={p.id}
-                className={`flex justify-between items-center border p-3 rounded-sm text-xs gap-3 ${
-                  editingId === p.id ? 'border-[#2874f0] bg-blue-50/50' : 'hover:bg-gray-50'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gray-50 border rounded flex items-center justify-center overflow-hidden shrink-0">
-                    {p.imageUrl ? (
-                      <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" />
-                    ) : (
-                      <Pill className="w-5 h-5 text-gray-300" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-bold text-gray-900 text-sm">
-                      {p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span>
-                    </p>
-                    <p className="text-gray-500">{p.salt} • Exp: {p.expiry} • {p.packing}</p>
-                    <p className="mt-1 font-semibold text-[#2874f0]">
-                      PTR: ₹{p.ptr} | MRP: ₹{p.mrp} | Stock: {p.stock}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => startEditMedicine(p)}
-                    className="text-[#2874f0] hover:bg-blue-100 p-2 rounded flex items-center gap-1 font-bold"
-                  >
-                    <Pencil className="w-4 h-4" /> Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteMedicine(p.id)}
-                    className="text-red-500 hover:bg-red-50 p-2 rounded"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+          {/* Existing 8000+ Stock List with Search, Pagination, Edit & Photo */}
+          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-3">
+            <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
+              <h3 className="text-sm font-bold text-gray-700">
+                All Medicines ({filteredAdminProducts.length.toLocaleString()})
+              </h3>
+              <div className="relative w-full sm:w-72">
+                <input
+                  type="text"
+                  placeholder="Search Brand, Salt or Company to Edit..."
+                  className="w-full border border-gray-300 rounded-sm py-1.5 px-3 pr-8 text-xs focus:outline-none focus:border-[#2874f0]"
+                  value={adminSearch}
+                  onChange={(e) => setAdminSearch(e.target.value)}
+                />
+                <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2" />
               </div>
-            ))}
+            </div>
+
+            {loadingCatalog ? (
+              <p className="text-center py-8 text-xs text-gray-500">Loading 8,000+ medicines catalog...</p>
+            ) : (
+              <div className="space-y-2">
+                {paginatedAdminProducts.map((p) => (
+                  <div
+                    key={p.id}
+                    className={`flex justify-between items-center border p-3 rounded-sm text-xs gap-3 ${
+                      editingId === p.id ? 'border-[#2874f0] bg-blue-50/50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 bg-gray-50 border rounded flex items-center justify-center overflow-hidden shrink-0">
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" />
+                        ) : (
+                          <Pill className="w-5 h-5 text-gray-300" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 text-sm truncate">
+                          {p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span>
+                        </p>
+                        <p className="text-gray-500 truncate">{p.salt} • Exp: {p.expiry} • {p.packing}</p>
+                        <p className="mt-1 font-semibold text-[#2874f0]">
+                          PTR: ₹{p.ptr} | MRP: ₹{p.mrp} | Stock: {p.stock}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => startEditMedicine(p)}
+                        className="text-[#2874f0] hover:bg-blue-100 px-2.5 py-1.5 rounded flex items-center gap-1 font-bold"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit / Photo
+                      </button>
+                      {firestoreIds.has(p.id) && (
+                        <button
+                          onClick={() => handleDeleteMedicine(p.id)}
+                          className="text-red-500 hover:bg-red-50 p-1.5 rounded"
+                          title="Delete Custom Item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Admin Pagination */}
+            {totalAdminPages > 1 && (
+              <div className="flex items-center justify-between pt-3 border-t text-xs font-bold">
+                <button
+                  disabled={adminPage === 1}
+                  onClick={() => setAdminPage((p) => Math.max(1, p - 1))}
+                  className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Prev
+                </button>
+                <span>
+                  Page {adminPage} of {totalAdminPages}
+                </span>
+                <button
+                  disabled={adminPage === totalAdminPages}
+                  onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))}
+                  className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40"
+                >
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
