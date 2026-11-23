@@ -30,7 +30,9 @@ import {
   Truck,
   CheckCircle2,
   XCircle,
-  Clock
+  Clock,
+  AlertTriangle,
+  ArrowRight
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -102,6 +104,11 @@ export default function AdminPanel() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null);
 
+  // Status Confirmation Modal & Toast States
+  const [statusModal, setStatusModal] = useState<{ order: Order; nextStatus: OrderStatus } | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
   // Catalog States
   const [products, setProducts] = useState<Medicine[]>([]);
   const [firestoreIds, setFirestoreIds] = useState<Set<string>>(new Set());
@@ -115,7 +122,12 @@ export default function AdminPanel() {
   // RMP Doctors States
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
 
-  // 1. Real-Time Listener for Orders & Users (Auto-updates instantly!)
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  // 1. Real-Time Listener for Orders & Users
   useEffect(() => {
     if (!isAdmin) return;
 
@@ -144,7 +156,7 @@ export default function AdminPanel() {
     };
   }, [isAdmin]);
 
-  // 2. Load Catalog (Firestore + Static 8000+ JSON)
+  // 2. Load Catalog
   const loadCatalog = async () => {
     setLoadingCatalog(true);
     try {
@@ -215,7 +227,6 @@ export default function AdminPanel() {
     setAdminPage(1);
   }, [adminSearch]);
 
-  // Filtered Orders
   const filteredOrders = useMemo(() => {
     const q = orderSearch.toLowerCase().trim();
     return orders.filter((o) => {
@@ -231,7 +242,6 @@ export default function AdminPanel() {
     });
   }, [orders, orderStatusFilter, orderSearch]);
 
-  // Filtered Catalog
   const filteredAdminProducts = useMemo(() => {
     const q = adminSearch.toLowerCase().trim();
     if (!q) return products;
@@ -257,11 +267,26 @@ export default function AdminPanel() {
     );
   }
 
-  // Update Order Status Handler
-  const handleOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
-    setUpdatingOrderId(orderId);
+  // Open Confirmation Popup before changing Order Status
+  const openStatusConfirmation = (order: Order, nextStatus: OrderStatus) => {
+    setCancelReason('');
+    setStatusModal({ order, nextStatus });
+  };
+
+  // Confirm & Save Status Update to Firestore
+  const confirmOrderStatusUpdate = async () => {
+    if (!statusModal) return;
+    const { order, nextStatus } = statusModal;
+    setUpdatingOrderId(order.id);
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: newStatus });
+      const updatePayload: any = { status: nextStatus };
+      if (nextStatus === 'Cancelled' && cancelReason.trim()) {
+        updatePayload.cancelReason = cancelReason.trim();
+      }
+      // If COD order is marked Delivered, auto-mark payment Paid if confirmed
+      await updateDoc(doc(db, 'orders', order.id), updatePayload);
+      showToast(`Order #${order.id.slice(0, 6).toUpperCase()} status updated to "${nextStatus}"!`);
+      setStatusModal(null);
     } catch (err: any) {
       alert('Status update failed: ' + err.message);
     } finally {
@@ -269,13 +294,15 @@ export default function AdminPanel() {
     }
   };
 
-  // Toggle Payment Paid/Pending
-  const handleTogglePayment = async (orderId: string, current: 'Pending' | 'Paid') => {
-    setUpdatingOrderId(orderId);
+  const handleTogglePayment = async (order: Order) => {
+    const nextPayStatus = order.paymentStatus === 'Paid' ? 'Pending' : 'Paid';
+    if (!window.confirm(`Kya aap Order #${order.id.slice(0, 6).toUpperCase()} ka payment "${nextPayStatus}" mark karna chahte hain?`)) {
+      return;
+    }
+    setUpdatingOrderId(order.id);
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
-        paymentStatus: current === 'Paid' ? 'Pending' : 'Paid'
-      });
+      await updateDoc(doc(db, 'orders', order.id), { paymentStatus: nextPayStatus });
+      showToast(`Payment marked as ${nextPayStatus}!`);
     } catch (err: any) {
       alert('Payment status update failed: ' + err.message);
     } finally {
@@ -283,7 +310,6 @@ export default function AdminPanel() {
     }
   };
 
-  // Medicine Handlers
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -313,10 +339,10 @@ export default function AdminPanel() {
 
     if (editingId) {
       await setDoc(doc(db, 'products', editingId), payload, { merge: true });
-      alert('Medicine updated!');
+      showToast('Medicine updated successfully!');
     } else {
       await addDoc(collection(db, 'products'), payload);
-      alert('New medicine added!');
+      showToast('New medicine added to store!');
     }
 
     setMedForm(EMPTY_MED);
@@ -349,11 +375,13 @@ export default function AdminPanel() {
     }
     if (!window.confirm('Delete this medicine?')) return;
     await deleteDoc(doc(db, 'products', id));
+    showToast('Medicine deleted.');
     loadCatalog();
   };
 
   const toggleVerifyDoctor = async (uid: string, current: boolean) => {
     await updateDoc(doc(db, 'users', uid), { verified: !current });
+    showToast(!current ? 'RMP Doctor Verified!' : 'RMP Verification Revoked');
   };
 
   const totalRevenue = orders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.grandTotal : 0), 0);
@@ -381,7 +409,15 @@ export default function AdminPanel() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 relative">
+      {/* Floating Success Toast Notification */}
+      {toastMsg && (
+        <div className="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-md shadow-xl border-l-4 border-emerald-400 flex items-center gap-2.5 text-xs font-bold animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
       {/* Top KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-[#2874f0]">
@@ -505,7 +541,6 @@ export default function AdminPanel() {
 
                 {/* Order Body: Customer Details & Payment Info */}
                 <div className="p-4 grid md:grid-cols-3 gap-4 border-b text-xs">
-                  {/* Col 1: Customer & Clinic Info */}
                   <div className="space-y-1">
                     <p className="text-[11px] font-bold text-gray-400 uppercase">Customer / Clinic Details</p>
                     <p className="font-extrabold text-sm text-gray-900">
@@ -523,7 +558,6 @@ export default function AdminPanel() {
                     </p>
                   </div>
 
-                  {/* Col 2: Payment Method & Verification */}
                   <div className="space-y-1.5 bg-gray-50 p-3 rounded border border-gray-100">
                     <p className="text-[11px] font-bold text-gray-400 uppercase flex items-center gap-1">
                       <CreditCard className="w-3.5 h-3.5 text-[#2874f0]" /> Payment Information
@@ -544,7 +578,7 @@ export default function AdminPanel() {
                       </span>
                       <button
                         disabled={updatingOrderId === o.id}
-                        onClick={() => handleTogglePayment(o.id, o.paymentStatus)}
+                        onClick={() => handleTogglePayment(o)}
                         className="text-[11px] font-bold text-[#2874f0] hover:underline"
                       >
                         Mark as {o.paymentStatus === 'Paid' ? 'Pending' : 'Paid'}
@@ -552,7 +586,6 @@ export default function AdminPanel() {
                     </div>
                   </div>
 
-                  {/* Col 3: Bill Amount Breakdown */}
                   <div className="space-y-1 bg-blue-50/40 p-3 rounded border border-blue-100 text-right flex flex-col justify-center">
                     <p className="text-gray-500">Subtotal (PTR): <b>₹{o.subtotal?.toFixed(2)}</b></p>
                     <p className="text-gray-500">GST Tax: <b>₹{o.gstTotal?.toFixed(2)}</b></p>
@@ -582,10 +615,10 @@ export default function AdminPanel() {
                   </div>
                 </div>
 
-                {/* Bottom Action Bar: Update Order Status */}
+                {/* Bottom Action Bar: Update Order Status (Opens Confirmation Popup) */}
                 <div className="px-4 py-3 bg-gray-50 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
-                    <Truck className="w-4 h-4 text-[#2874f0]" /> Update Live Status (User ko turant dikhega):
+                    <Truck className="w-4 h-4 text-[#2874f0]" /> Change Order Status:
                   </span>
 
                   <div className="flex flex-wrap gap-1.5">
@@ -595,12 +628,12 @@ export default function AdminPanel() {
                         <button
                           key={st}
                           disabled={updatingOrderId === o.id || isCurrent}
-                          onClick={() => handleOrderStatus(o.id, st)}
+                          onClick={() => openStatusConfirmation(o, st)}
                           className={`px-3 py-1.5 rounded-sm text-xs font-bold flex items-center gap-1 transition ${
                             isCurrent
                               ? st === 'Cancelled'
-                                ? 'bg-red-600 text-white shadow-sm'
-                                : 'bg-emerald-600 text-white shadow-sm'
+                                ? 'bg-red-600 text-white shadow-sm cursor-default'
+                                : 'bg-emerald-600 text-white shadow-sm cursor-default'
                               : 'bg-white border border-gray-300 text-gray-700 hover:bg-blue-50 hover:border-[#2874f0]'
                           }`}
                         >
@@ -800,6 +833,82 @@ export default function AdminPanel() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ==================== STATUS CONFIRMATION MODAL POPUP ==================== */}
+      {statusModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white max-w-md w-full rounded-md shadow-2xl border overflow-hidden">
+            <div className={`px-5 py-3.5 flex items-center justify-between text-white ${
+              statusModal.nextStatus === 'Cancelled' ? 'bg-red-600' : 'bg-[#2874f0]'
+            }`}>
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Confirm Order Status Update
+              </h3>
+              <button onClick={() => setStatusModal(null)} className="hover:opacity-80">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="bg-gray-50 p-3 rounded border space-y-1">
+                <p className="text-gray-500">Order ID: <b className="text-gray-900">#{statusModal.order.id.slice(0, 8).toUpperCase()}</b></p>
+                <p className="text-gray-500">Clinic: <b className="text-gray-900">{statusModal.order.clinicName} ({statusModal.order.doctorName})</b></p>
+                <p className="text-gray-500">Bill Amount: <b className="text-emerald-700">₹{statusModal.order.grandTotal}</b></p>
+              </div>
+
+              {/* Status Change Visual */}
+              <div className="flex items-center justify-center gap-3 py-2">
+                <span className={`px-3 py-1 rounded-full font-bold border ${getStatusStyle(statusModal.order.status)}`}>
+                  {statusModal.order.status}
+                </span>
+                <ArrowRight className="w-4 h-4 text-gray-400" />
+                <span className={`px-3 py-1 rounded-full font-bold border ${getStatusStyle(statusModal.nextStatus)}`}>
+                  {statusModal.nextStatus}
+                </span>
+              </div>
+
+              <p className="text-gray-600 text-center">
+                Kya aap sure hain ki is order ko <b>"{statusModal.nextStatus}"</b> mark karna hai? Yeh status customer ko turant dikhne lagega.
+              </p>
+
+              {statusModal.nextStatus === 'Cancelled' && (
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">Cancellation Reason (Optional):</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Stock unavailable / Doctor requested cancel"
+                    className="w-full border border-gray-300 p-2 rounded-sm focus:outline-none focus:border-red-500"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2.5 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setStatusModal(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-sm font-bold text-gray-700 hover:bg-gray-100"
+                >
+                  No, Go Back
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingOrderId === statusModal.order.id}
+                  onClick={confirmOrderStatusUpdate}
+                  className={`px-5 py-2 rounded-sm font-bold text-white shadow-sm ${
+                    statusModal.nextStatus === 'Cancelled'
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
+                >
+                  {updatingOrderId === statusModal.order.id ? 'Updating...' : `Yes, Mark ${statusModal.nextStatus}`}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
