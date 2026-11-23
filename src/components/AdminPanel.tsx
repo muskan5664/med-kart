@@ -95,7 +95,8 @@ const compressMedicineImage = (file: File): Promise<string> => {
 
 export default function AdminPanel() {
   const { isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('orders');
+  // Default 'catalog' tab so Add / Edit / Delete medicine tools are immediately visible
+  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('catalog');
 
   // Orders States (Real-time)
   const [orders, setOrders] = useState<Order[]>([]);
@@ -156,14 +157,17 @@ export default function AdminPanel() {
     };
   }, [isAdmin]);
 
-  // 2. Load Catalog
+  // 2. Load Catalog (Firestore + Static 8000+ JSON)
   const loadCatalog = async () => {
     setLoadingCatalog(true);
     try {
       const pSnap = await getDocs(collection(db, 'products'));
-      const fsList = pSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine));
-      const fsIdSet = new Set(fsList.map((item) => item.id));
+      const rawFsList = pSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine & { hidden?: boolean }));
+      const fsIdSet = new Set(rawFsList.map((item) => item.id));
       setFirestoreIds(fsIdSet);
+
+      // Visible Firestore products (exclude soft-deleted static items)
+      const visibleFsList = rawFsList.filter((item) => !item.hidden);
 
       let staticList: Medicine[] = [];
       try {
@@ -213,7 +217,7 @@ export default function AdminPanel() {
         console.warn('Static medicines.json error:', e);
       }
 
-      setProducts([...fsList, ...staticList]);
+      setProducts([...visibleFsList, ...staticList]);
     } finally {
       setLoadingCatalog(false);
     }
@@ -283,7 +287,6 @@ export default function AdminPanel() {
       if (nextStatus === 'Cancelled' && cancelReason.trim()) {
         updatePayload.cancelReason = cancelReason.trim();
       }
-      // If COD order is marked Delivered, auto-mark payment Paid if confirmed
       await updateDoc(doc(db, 'orders', order.id), updatePayload);
       showToast(`Order #${order.id.slice(0, 6).toUpperCase()} status updated to "${nextStatus}"!`);
       setStatusModal(null);
@@ -334,7 +337,8 @@ export default function AdminPanel() {
       stock: Number(medForm.stock),
       expiry: medForm.expiry.trim(),
       packing: medForm.packing.trim(),
-      imageUrl: medForm.imageUrl || ''
+      imageUrl: medForm.imageUrl || '',
+      hidden: false
     };
 
     if (editingId) {
@@ -368,14 +372,19 @@ export default function AdminPanel() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDeleteMedicine = async (id: string) => {
-    if (!firestoreIds.has(id)) {
-      alert('Yeh static catalog item hai. Aap isko Edit karke update kar sakte hain.');
-      return;
+  // Delete Custom Medicine OR Hide Static JSON Medicine
+  const handleDeleteMedicine = async (p: Medicine) => {
+    if (!window.confirm(`Kya aap "${p.name}" ko catalog se delete karna chahte hain?`)) return;
+    if (firestoreIds.has(p.id) && !p.id.startsWith('med-')) {
+      await deleteDoc(doc(db, 'products', p.id));
+    } else {
+      await setDoc(doc(db, 'products', p.id), { ...p, hidden: true }, { merge: true });
     }
-    if (!window.confirm('Delete this medicine?')) return;
-    await deleteDoc(doc(db, 'products', id));
-    showToast('Medicine deleted.');
+    if (editingId === p.id) {
+      setEditingId(null);
+      setMedForm(EMPTY_MED);
+    }
+    showToast(`"${p.name}" deleted from catalog!`);
     loadCatalog();
   };
 
@@ -412,7 +421,7 @@ export default function AdminPanel() {
     <div className="space-y-5 relative">
       {/* Floating Success Toast Notification */}
       {toastMsg && (
-        <div className="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-md shadow-xl border-l-4 border-emerald-400 flex items-center gap-2.5 text-xs font-bold animate-bounce">
+        <div className="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-md shadow-xl border-l-4 border-emerald-400 flex items-center gap-2.5 text-xs font-bold">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMsg}</span>
         </div>
@@ -433,7 +442,7 @@ export default function AdminPanel() {
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-amber-500">
           <p className="text-[11px] text-gray-500 font-bold uppercase">Catalog Medicines</p>
           <p className="text-2xl font-extrabold text-gray-900 mt-1">{products.length.toLocaleString()}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">8,000+ Ready Stock</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">Ready Stock</p>
         </div>
         <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-purple-500">
           <p className="text-[11px] text-gray-500 font-bold uppercase">Registered RMPs</p>
@@ -445,20 +454,20 @@ export default function AdminPanel() {
       {/* Main Navigation Tabs */}
       <div className="bg-white p-2.5 rounded-md shadow-sm border flex flex-wrap gap-2">
         <button
+          onClick={() => setActiveTab('catalog')}
+          className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 transition ${
+            activeTab === 'catalog' ? 'bg-[#2874f0] text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          <Pill className="w-4 h-4" /> Add / Edit Medicines ({products.length.toLocaleString()})
+        </button>
+        <button
           onClick={() => setActiveTab('orders')}
           className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 transition ${
             activeTab === 'orders' ? 'bg-[#2874f0] text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
           }`}
         >
           <PackageCheck className="w-4 h-4" /> Manage Orders ({orders.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('catalog')}
-          className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 transition ${
-            activeTab === 'catalog' ? 'bg-[#2874f0] text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <Pill className="w-4 h-4" /> Medicines Catalog ({products.length.toLocaleString()})
         </button>
         <button
           onClick={() => setActiveTab('doctors')}
@@ -470,7 +479,186 @@ export default function AdminPanel() {
         </button>
       </div>
 
-      {/* ==================== TAB 1: PROFESSIONAL ORDER MANAGEMENT ==================== */}
+      {/* ==================== TAB 1: MEDICINES CATALOG (ADD / EDIT / DELETE) ==================== */}
+      {activeTab === 'catalog' && (
+        <div className="grid lg:grid-cols-3 gap-6">
+          <form onSubmit={handleSaveMedicine} className="bg-white p-5 rounded-md shadow-sm border space-y-3 text-xs h-fit">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-sm font-bold text-[#2874f0] flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4" />
+                {editingId ? 'Edit Medicine & Photo' : 'Add New Medicine'}
+              </h3>
+              {editingId && (
+                <button type="button" onClick={() => { setEditingId(null); setMedForm(EMPTY_MED); }} className="text-red-500 flex items-center gap-0.5 font-bold">
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </button>
+              )}
+            </div>
+
+            {/* Medicine Photo Upload & URL */}
+            <div className="border border-dashed border-gray-300 rounded-sm p-3 bg-gray-50">
+              <label className="font-bold text-gray-700 block mb-1.5 flex items-center gap-1">
+                <ImagePlus className="w-4 h-4 text-[#2874f0]" /> Medicine Photo (Upload or Paste Image Link)
+              </label>
+              <div className="flex items-center gap-3">
+                {medForm.imageUrl ? (
+                  <div className="relative w-16 h-16 bg-white border rounded overflow-hidden shrink-0">
+                    <img src={medForm.imageUrl} alt="Preview" className="w-full h-full object-contain" />
+                    <button type="button" onClick={() => setMedForm({ ...medForm, imageUrl: '' })} className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 bg-white border rounded flex items-center justify-center text-gray-300 shrink-0">
+                    <Pill className="w-6 h-6" />
+                  </div>
+                )}
+                <div className="flex-1 space-y-1.5">
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-[11px] text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-sm file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-[#2874f0]" />
+                  <input type="text" placeholder="Direct Image URL paste karein (.jpg/.png)..." className="w-full border bg-white p-1.5 rounded-sm text-[11px]" value={medForm.imageUrl.startsWith('data:') ? '' : medForm.imageUrl} onChange={(e) => setMedForm({ ...medForm, imageUrl: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="font-bold text-gray-600 block mb-1">Brand Name *</label>
+              <input type="text" required placeholder="e.g. Dolo 650mg Tablet" className="w-full border p-2 rounded-sm" value={medForm.name} onChange={(e) => setMedForm({ ...medForm, name: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="font-bold text-gray-600 block mb-1">Salt / Composition *</label>
+              <input type="text" required placeholder="e.g. Paracetamol IP 650mg" className="w-full border p-2 rounded-sm" value={medForm.salt} onChange={(e) => setMedForm({ ...medForm, salt: e.target.value })} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Company *</label>
+                <input type="text" required placeholder="Micro Labs" className="w-full border p-2 rounded-sm" value={medForm.company} onChange={(e) => setMedForm({ ...medForm, company: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Category *</label>
+                <select className="w-full border p-2 rounded-sm" value={medForm.category} onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}>
+                  <option>Tablets & Caps</option>
+                  <option>Syrups & Drops</option>
+                  <option>Injections</option>
+                  <option>Ointments & Derma</option>
+                  <option>Surgical & Care</option>
+                  <option>Veterinary</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">MRP (₹) *</label>
+                <input type="number" step="0.01" required placeholder="120" className="w-full border p-2 rounded-sm" value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">RMP PTR (₹) *</label>
+                <input type="number" step="0.01" required placeholder="78" className="w-full border p-2 rounded-sm" value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">GST %</label>
+                <select className="w-full border p-2 rounded-sm" value={medForm.gst} onChange={(e) => setMedForm({ ...medForm, gst: e.target.value })}>
+                  <option value="5">5%</option>
+                  <option value="12">12%</option>
+                  <option value="18">18%</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Stock</label>
+                <input type="number" required className="w-full border p-2 rounded-sm" value={medForm.stock} onChange={(e) => setMedForm({ ...medForm, stock: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Expiry *</label>
+                <input type="text" required placeholder="12/2028" className="w-full border p-2 rounded-sm" value={medForm.expiry} onChange={(e) => setMedForm({ ...medForm, expiry: e.target.value })} />
+              </div>
+              <div>
+                <label className="font-bold text-gray-600 block mb-1">Packing</label>
+                <input type="text" placeholder="10 Tabs" className="w-full border p-2 rounded-sm" value={medForm.packing} onChange={(e) => setMedForm({ ...medForm, packing: e.target.value })} />
+              </div>
+            </div>
+
+            <button type="submit" className={`w-full text-white font-bold py-2.5 rounded-sm uppercase ${editingId ? 'bg-[#2874f0] hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+              {editingId ? 'Update Medicine Details' : 'Save New Medicine'}
+            </button>
+          </form>
+
+          {/* Existing Catalog List with Edit & Delete */}
+          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-3">
+            <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
+              <h3 className="text-sm font-bold text-gray-700">All Medicines ({filteredAdminProducts.length.toLocaleString()})</h3>
+              <div className="relative w-full sm:w-72">
+                <input type="text" placeholder="Search Brand, Salt or Company..." className="w-full border border-gray-300 rounded-sm py-1.5 px-3 pr-8 text-xs" value={adminSearch} onChange={(e) => setAdminSearch(e.target.value)} />
+                <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2" />
+              </div>
+            </div>
+
+            {loadingCatalog ? (
+              <p className="text-center py-8 text-xs text-gray-500">Loading catalog...</p>
+            ) : (
+              <div className="space-y-2">
+                {paginatedAdminProducts.map((p) => (
+                  <div
+                    key={p.id}
+                    className={`flex justify-between items-center border p-3 rounded-sm text-xs gap-3 ${
+                      editingId === p.id ? 'border-[#2874f0] bg-blue-50/50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 bg-gray-50 border rounded flex items-center justify-center overflow-hidden shrink-0">
+                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" /> : <Pill className="w-5 h-5 text-gray-300" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 text-sm truncate">
+                          {p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span>
+                        </p>
+                        <p className="text-gray-500 truncate">{p.salt} • Exp: {p.expiry} • {p.packing}</p>
+                        <p className="mt-0.5 font-semibold text-[#2874f0]">
+                          PTR: ₹{p.ptr} | MRP: ₹{p.mrp} | Stock: {p.stock}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => startEditMedicine(p)}
+                        className="bg-blue-50 text-[#2874f0] hover:bg-blue-100 px-2.5 py-1.5 rounded flex items-center gap-1 font-bold"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteMedicine(p)}
+                        className="bg-red-50 text-red-600 hover:bg-red-100 p-1.5 rounded"
+                        title="Delete Medicine"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {totalAdminPages > 1 && (
+              <div className="flex items-center justify-between pt-3 border-t text-xs font-bold">
+                <button disabled={adminPage === 1} onClick={() => setAdminPage((p) => Math.max(1, p - 1))} className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40">
+                  <ChevronLeft className="w-4 h-4" /> Prev
+                </button>
+                <span>Page {adminPage} of {totalAdminPages}</span>
+                <button disabled={adminPage === totalAdminPages} onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))} className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40">
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== TAB 2: PROFESSIONAL ORDER MANAGEMENT ==================== */}
       {activeTab === 'orders' && (
         <div className="space-y-4">
           {/* Status Filter Strip + Search */}
@@ -651,168 +839,6 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {/* ==================== TAB 2: MEDICINES CATALOG ==================== */}
-      {activeTab === 'catalog' && (
-        <div className="grid lg:grid-cols-3 gap-6">
-          <form onSubmit={handleSaveMedicine} className="bg-white p-5 rounded-md shadow-sm border space-y-3 text-xs h-fit">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-sm font-bold text-[#2874f0] flex items-center gap-1.5">
-                <PlusCircle className="w-4 h-4" />
-                {editingId ? 'Edit Medicine & Photo' : 'Add New Medicine'}
-              </h3>
-              {editingId && (
-                <button type="button" onClick={() => { setEditingId(null); setMedForm(EMPTY_MED); }} className="text-red-500 flex items-center gap-0.5 font-bold">
-                  <X className="w-3.5 h-3.5" /> Cancel
-                </button>
-              )}
-            </div>
-
-            <div className="border border-dashed border-gray-300 rounded-sm p-3 bg-gray-50">
-              <label className="font-bold text-gray-700 block mb-1.5 flex items-center gap-1">
-                <ImagePlus className="w-4 h-4 text-[#2874f0]" /> Medicine Photo
-              </label>
-              <div className="flex items-center gap-3">
-                {medForm.imageUrl ? (
-                  <div className="relative w-16 h-16 bg-white border rounded overflow-hidden shrink-0">
-                    <img src={medForm.imageUrl} alt="Preview" className="w-full h-full object-contain" />
-                    <button type="button" onClick={() => setMedForm({ ...medForm, imageUrl: '' })} className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="w-16 h-16 bg-white border rounded flex items-center justify-center text-gray-300 shrink-0">
-                    <Pill className="w-6 h-6" />
-                  </div>
-                )}
-                <div className="flex-1 space-y-1.5">
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-[11px] text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-sm file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-[#2874f0]" />
-                  <input type="text" placeholder="Ya Image URL paste karein..." className="w-full border bg-white p-1.5 rounded-sm text-[11px]" value={medForm.imageUrl.startsWith('data:') ? '' : medForm.imageUrl} onChange={(e) => setMedForm({ ...medForm, imageUrl: e.target.value })} />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-600 block mb-1">Brand Name *</label>
-              <input type="text" required placeholder="e.g. Dolo 650mg Tablet" className="w-full border p-2 rounded-sm" value={medForm.name} onChange={(e) => setMedForm({ ...medForm, name: e.target.value })} />
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-600 block mb-1">Salt / Composition *</label>
-              <input type="text" required placeholder="e.g. Paracetamol IP 650mg" className="w-full border p-2 rounded-sm" value={medForm.salt} onChange={(e) => setMedForm({ ...medForm, salt: e.target.value })} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Company *</label>
-                <input type="text" required placeholder="Micro Labs" className="w-full border p-2 rounded-sm" value={medForm.company} onChange={(e) => setMedForm({ ...medForm, company: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Category *</label>
-                <select className="w-full border p-2 rounded-sm" value={medForm.category} onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}>
-                  <option>Tablets & Caps</option>
-                  <option>Syrups & Drops</option>
-                  <option>Injections</option>
-                  <option>Ointments & Derma</option>
-                  <option>Surgical & Care</option>
-                  <option>Veterinary</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">MRP (₹) *</label>
-                <input type="number" step="0.01" required className="w-full border p-2 rounded-sm" value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">RMP PTR (₹) *</label>
-                <input type="number" step="0.01" required className="w-full border p-2 rounded-sm" value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">GST %</label>
-                <select className="w-full border p-2 rounded-sm" value={medForm.gst} onChange={(e) => setMedForm({ ...medForm, gst: e.target.value })}>
-                  <option value="5">5%</option>
-                  <option value="12">12%</option>
-                  <option value="18">18%</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Stock</label>
-                <input type="number" required className="w-full border p-2 rounded-sm" value={medForm.stock} onChange={(e) => setMedForm({ ...medForm, stock: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Expiry *</label>
-                <input type="text" required className="w-full border p-2 rounded-sm" value={medForm.expiry} onChange={(e) => setMedForm({ ...medForm, expiry: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Packing</label>
-                <input type="text" className="w-full border p-2 rounded-sm" value={medForm.packing} onChange={(e) => setMedForm({ ...medForm, packing: e.target.value })} />
-              </div>
-            </div>
-
-            <button type="submit" className={`w-full text-white font-bold py-2.5 rounded-sm uppercase ${editingId ? 'bg-[#2874f0]' : 'bg-emerald-600'}`}>
-              {editingId ? 'Update Medicine' : 'Save New Medicine'}
-            </button>
-          </form>
-
-          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-3">
-            <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
-              <h3 className="text-sm font-bold text-gray-700">All Medicines ({filteredAdminProducts.length.toLocaleString()})</h3>
-              <div className="relative w-full sm:w-72">
-                <input type="text" placeholder="Search Brand, Salt or Company..." className="w-full border border-gray-300 rounded-sm py-1.5 px-3 pr-8 text-xs" value={adminSearch} onChange={(e) => setAdminSearch(e.target.value)} />
-                <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2" />
-              </div>
-            </div>
-
-            {loadingCatalog ? (
-              <p className="text-center py-8 text-xs text-gray-500">Loading catalog...</p>
-            ) : (
-              <div className="space-y-2">
-                {paginatedAdminProducts.map((p) => (
-                  <div key={p.id} className="flex justify-between items-center border p-3 rounded-sm text-xs gap-3 hover:bg-gray-50">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-11 h-11 bg-gray-50 border rounded flex items-center justify-center overflow-hidden shrink-0">
-                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" /> : <Pill className="w-5 h-5 text-gray-300" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-gray-900 text-sm truncate">{p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span></p>
-                        <p className="text-gray-500 truncate">{p.salt} • Exp: {p.expiry}</p>
-                        <p className="mt-0.5 font-semibold text-[#2874f0]">PTR: ₹{p.ptr} | MRP: ₹{p.mrp}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => startEditMedicine(p)} className="text-[#2874f0] hover:bg-blue-100 px-2.5 py-1.5 rounded flex items-center gap-1 font-bold">
-                        <Pencil className="w-3.5 h-3.5" /> Edit
-                      </button>
-                      {firestoreIds.has(p.id) && (
-                        <button onClick={() => handleDeleteMedicine(p.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {totalAdminPages > 1 && (
-              <div className="flex items-center justify-between pt-3 border-t text-xs font-bold">
-                <button disabled={adminPage === 1} onClick={() => setAdminPage((p) => Math.max(1, p - 1))} className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40">
-                  <ChevronLeft className="w-4 h-4" /> Prev
-                </button>
-                <span>Page {adminPage} of {totalAdminPages}</span>
-                <button disabled={adminPage === totalAdminPages} onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))} className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40">
-                  Next <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ==================== TAB 3: RMP CLINICS ==================== */}
       {activeTab === 'doctors' && (
         <div className="bg-white p-4 rounded-md shadow-sm border space-y-2">
@@ -858,7 +884,6 @@ export default function AdminPanel() {
                 <p className="text-gray-500">Bill Amount: <b className="text-emerald-700">₹{statusModal.order.grandTotal}</b></p>
               </div>
 
-              {/* Status Change Visual */}
               <div className="flex items-center justify-center gap-3 py-2">
                 <span className={`px-3 py-1 rounded-full font-bold border ${getStatusStyle(statusModal.order.status)}`}>
                   {statusModal.order.status}
