@@ -33,6 +33,7 @@ export default function StorePage({ search }: StorePageProps) {
   useEffect(() => {
     const fetchAllMedicines = async () => {
       try {
+        // 1. Load 8000+ medicines from static public/medicines.json
         let staticList: Medicine[] = [];
         try {
           const res = await fetch('/medicines.json');
@@ -42,7 +43,6 @@ export default function StorePage({ search }: StorePageProps) {
               const seenNames = new Map<string, Medicine>();
 
               rawData.forEach((row: any, index: number) => {
-                // Handle 2D Array format from data (4).json
                 if (Array.isArray(row)) {
                   const rawName = String(row[0] || '').trim();
                   const salt = row[1] ? String(row[1]).trim() : '';
@@ -63,12 +63,10 @@ export default function StorePage({ search }: StorePageProps) {
                   }
 
                   const mrp = parseFloat(rawPrice) || 50;
-                  // Default B2B RMP Rate (PTR) = 25% discount on MRP (editable anytime in Admin)
                   const ptr = Number((mrp * 0.75).toFixed(2));
                   const stock = closingStock > 0 ? Math.ceil(closingStock) : 50;
                   const key = `${rawName.toUpperCase()}_${packing.toUpperCase()}`;
 
-                  // Keep latest batch entry & accumulate stock without duplicating cards
                   if (!seenNames.has(key)) {
                     seenNames.set(key, {
                       id: `med-${index}`,
@@ -99,11 +97,17 @@ export default function StorePage({ search }: StorePageProps) {
           console.warn('Error parsing medicines.json:', e);
         }
 
-        // Load Admin-added / Edited medicines from Firestore
+        // 2. Load Admin-added / Edited medicines from Firestore
         const snap = await getDocs(collection(db, 'products'));
         const firestoreList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine));
 
-        const combined = [...firestoreList, ...staticList];
+        // Override static items with Firestore edited versions (photos, updated PTR/MRP)
+        const fsIdSet = new Set(firestoreList.map((item) => item.id));
+        const combined = [
+          ...firestoreList,
+          ...staticList.filter((item) => !fsIdSet.has(item.id))
+        ];
+
         setProducts(
           combined.length > 0
             ? combined
