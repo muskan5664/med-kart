@@ -3,13 +3,13 @@ export interface Medicine {
   name: string;
   salt: string;
   company: string;
-  category: 'Tablets' | 'Syrups' | 'Injections' | 'Antibiotics' | 'Surgical' | string;
+  category: string;
   mrp: number;
-  ptr: number; // Price to Retailer / RMP Rate
-  gst: number; // e.g., 5, 12, 18
+  ptr: number;
+  gst: number;
   stock: number;
   expiry: string;
-  packing?: string; // e.g., "10x10 Tabs"
+  packing?: string;
   imageUrl?: string;
 }
 
@@ -30,9 +30,12 @@ export interface UserProfile {
   createdAt: string;
 }
 
+export type OrderStatus = 'Confirmed' | 'Packed' | 'Shipped' | 'Delivered' | 'Cancelled';
+
 export interface Order {
   id: string;
   userId: string;
+  userEmail?: string;
   doctorName: string;
   clinicName: string;
   rmpNo: string;
@@ -42,8 +45,9 @@ export interface Order {
   subtotal: number;
   gstTotal: number;
   grandTotal: number;
-  paymentMode: 'COD' | 'UPI_DELIVERY' | 'ONLINE';
+  paymentMode: 'UPI_QR' | 'COD' | 'ONLINE' | string;
   paymentStatus: 'Pending' | 'Paid';
-  status: 'Confirmed' | 'Packed' | 'Dispatched' | 'Delivered' | 'Cancelled';
+  utrNumber?: string;
+  status: OrderStatus;
   createdAt: string;
 }
