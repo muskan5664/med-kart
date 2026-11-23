@@ -1,0 +1,299 @@
+{
+  "entities": {
+    "Medicine": {
+      "title": "Medicine",
+      "description": "Wholesale pharmaceutical item in Aman Medical catalog",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Unique medicine SKU/code used for photo matching",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "description": "Medicine trade/brand name",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "nameLower": {
+          "type": "string",
+          "description": "Lowercase normalized name for fast search",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "company": {
+          "type": "string",
+          "description": "Pharmaceutical manufacturer name",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "pack": {
+          "type": "string",
+          "description": "Packaging specification (e.g. 10x10 Tabs, 100ml Bottle)",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "rate": {
+          "type": "number",
+          "description": "Wholesale B2B rate in INR"
+        },
+        "minQty": {
+          "type": "number",
+          "description": "Minimum order quantity per line item"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Compressed WebP data URL or hosted image URL",
+          "maxLength": 350000
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether medicine is currently visible for doctor ordering"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last modification"
+        }
+      },
+      "required": ["code", "name", "nameLower", "company", "pack", "rate", "minQty", "imageUrl", "active", "createdAt", "updatedAt"]
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "Doctor or Admin account profile with clinic details and approval status",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "Account email address",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "name": {
+          "type": "string",
+          "description": "Doctor full name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "clinic": {
+          "type": "string",
+          "description": "Clinic or hospital name",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "description": "10-digit WhatsApp/contact mobile number",
+          "minLength": 5,
+          "maxLength": 24
+        },
+        "city": {
+          "type": "string",
+          "description": "City / town for courier delivery",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["doctor", "admin"],
+          "description": "Account role"
+        },
+        "approved": {
+          "type": "boolean",
+          "description": "Whether doctor is approved by admin to place orders"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected", "blocked"],
+          "description": "Account verification state"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Registration timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last profile update timestamp"
+        }
+      },
+      "required": ["uid", "email", "name", "clinic", "phone", "city", "role", "approved", "status", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "B2B medicine wholesale order placed by an approved doctor",
+      "type": "object",
+      "properties": {
+        "orderNumber": {
+          "type": "string",
+          "description": "Human-readable order code e.g. AM-2026-1042",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "doctorId": {
+          "type": "string",
+          "description": "UID of the ordering doctor",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "doctorName": {
+          "type": "string",
+          "description": "Snapshot of doctor name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "clinicName": {
+          "type": "string",
+          "description": "Snapshot of clinic name",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "doctorPhone": {
+          "type": "string",
+          "description": "Snapshot of doctor phone",
+          "minLength": 5,
+          "maxLength": 24
+        },
+        "doctorCity": {
+          "type": "string",
+          "description": "Snapshot of doctor city",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "totalItems": {
+          "type": "number",
+          "description": "Count of distinct medicine SKUs in order"
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "Total order value in INR"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Packed", "Dispatched", "Delivered"],
+          "description": "Fulfillment lifecycle status"
+        },
+        "courierName": {
+          "type": "string",
+          "description": "Assigned courier partner name",
+          "maxLength": 120
+        },
+        "trackingNo": {
+          "type": "string",
+          "description": "Courier AWB / tracking number",
+          "maxLength": 100
+        },
+        "notes": {
+          "type": "string",
+          "description": "Delivery instructions or doctor remarks",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Order creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Order status update timestamp"
+        }
+      },
+      "required": ["orderNumber", "doctorId", "doctorName", "clinicName", "doctorPhone", "doctorCity", "totalItems", "totalAmount", "status", "courierName", "trackingNo", "notes", "createdAt", "updatedAt"]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Line item inside an order subcollection",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "description": "Parent order document ID",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "doctorId": {
+          "type": "string",
+          "description": "UID of the ordering doctor",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "medicineId": {
+          "type": "string",
+          "description": "Referenced medicine document ID",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "code": {
+          "type": "string",
+          "description": "Medicine code snapshot",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "description": "Medicine name snapshot",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "company": {
+          "type": "string",
+          "description": "Company name snapshot",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "pack": {
+          "type": "string",
+          "description": "Pack size snapshot",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "rate": {
+          "type": "number",
+          "description": "Unit wholesale rate in INR at order time"
+        },
+        "qty": {
+          "type": "number",
+          "description": "Ordered quantity (>= minQty)"
+        },
+        "lineTotal": {
+          "type": "number",
+          "description": "rate * qty in INR"
+        }
+      },
+      "required": ["orderId", "doctorId", "medicineId", "code", "name", "company", "pack", "rate", "qty", "lineTotal"]
+    }
+  },
+  "firestore": {
+    "/medicines/{medicineId}": {
+      "schema": "Medicine",
+      "description": "Master wholesale medicine catalog managed by admins and browsed by doctors"
+    },
+    "/profiles/{userId}": {
+      "schema": "Profile",
+      "description": "Doctor and Admin profiles isolated per user with admin approval flags"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Doctor wholesale orders restricted to the ordering doctor or admin"
+    },
+    "/orders/{orderId}/items/{itemId}": {
+      "schema": "OrderItem",
+      "description": "Individual medicine line items belonging to an order"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Aman Medical - Doctor Ordering Portal",
+  "description": "B2B wholesale pharmaceutical ordering portal for verified doctors and clinics with bulk CSV catalog management, WebP photo ZIP linking, and real-time order dispatch tracking.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

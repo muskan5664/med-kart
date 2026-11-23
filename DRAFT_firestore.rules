@@ -1,0 +1,215 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'satyamgupta1287@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isApprovedDoctor() {
+      return isVerified() && (
+        isAdmin() || (
+          exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.approved == true &&
+          get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.status == 'approved'
+        )
+      );
+    }
+
+    // Validation Blueprints
+    function isValidMedicine(data) {
+      return data.keys().hasAll(['code', 'name', 'nameLower', 'company', 'pack', 'rate', 'minQty', 'imageUrl', 'active', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['code', 'name', 'nameLower', 'company', 'pack', 'rate', 'minQty', 'imageUrl', 'active', 'createdAt', 'updatedAt']) &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        data.nameLower is string && data.nameLower.size() >= 1 && data.nameLower.size() <= 200 &&
+        data.company is string && data.company.size() >= 1 && data.company.size() <= 160 &&
+        data.pack is string && data.pack.size() >= 1 && data.pack.size() <= 80 &&
+        data.rate is number && data.rate >= 0 && data.rate <= 1000000 &&
+        data.minQty is int && data.minQty >= 1 && data.minQty <= 10000 &&
+        data.imageUrl is string && data.imageUrl.size() <= 350000 &&
+        data.active is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'clinic', 'phone', 'city', 'role', 'approved', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'name', 'clinic', 'phone', 'city', 'role', 'approved', 'status', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid == userId &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.clinic is string && data.clinic.size() >= 1 && data.clinic.size() <= 160 &&
+        data.phone is string && data.phone.size() >= 5 && data.phone.size() <= 24 &&
+        data.city is string && data.city.size() >= 1 && data.city.size() <= 100 &&
+        data.role is string && data.role.size() <= 20 && (data.role == 'doctor' || data.role == 'admin') &&
+        data.approved is bool &&
+        data.status is string && data.status.size() <= 20 && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected' || data.status == 'blocked') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['orderNumber', 'doctorId', 'doctorName', 'clinicName', 'doctorPhone', 'doctorCity', 'totalItems', 'totalAmount', 'status', 'courierName', 'trackingNo', 'notes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['orderNumber', 'doctorId', 'doctorName', 'clinicName', 'doctorPhone', 'doctorCity', 'totalItems', 'totalAmount', 'status', 'courierName', 'trackingNo', 'notes', 'createdAt', 'updatedAt']) &&
+        data.orderNumber is string && data.orderNumber.size() >= 3 && data.orderNumber.size() <= 40 &&
+        data.doctorId is string && data.doctorId.size() >= 1 && data.doctorId.size() <= 128 &&
+        data.doctorName is string && data.doctorName.size() >= 1 && data.doctorName.size() <= 120 &&
+        data.clinicName is string && data.clinicName.size() >= 1 && data.clinicName.size() <= 160 &&
+        data.doctorPhone is string && data.doctorPhone.size() >= 5 && data.doctorPhone.size() <= 24 &&
+        data.doctorCity is string && data.doctorCity.size() >= 1 && data.doctorCity.size() <= 100 &&
+        data.totalItems is int && data.totalItems >= 1 && data.totalItems <= 500 &&
+        data.totalAmount is number && data.totalAmount >= 0 && data.totalAmount <= 100000000 &&
+        data.status is string && data.status.size() <= 24 && (data.status == 'Pending' || data.status == 'Packed' || data.status == 'Dispatched' || data.status == 'Delivered') &&
+        data.courierName is string && data.courierName.size() <= 120 &&
+        data.trackingNo is string && data.trackingNo.size() <= 100 &&
+        data.notes is string && data.notes.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrderItem(data, orderId) {
+      return data.keys().hasAll(['orderId', 'doctorId', 'medicineId', 'code', 'name', 'company', 'pack', 'rate', 'qty', 'lineTotal']) &&
+        data.keys().hasOnly(['orderId', 'doctorId', 'medicineId', 'code', 'name', 'company', 'pack', 'rate', 'qty', 'lineTotal']) &&
+        data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128 && data.orderId == orderId &&
+        data.doctorId is string && data.doctorId.size() >= 1 && data.doctorId.size() <= 128 &&
+        data.medicineId is string && data.medicineId.size() >= 1 && data.medicineId.size() <= 128 &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        data.company is string && data.company.size() >= 1 && data.company.size() <= 160 &&
+        data.pack is string && data.pack.size() >= 1 && data.pack.size() <= 80 &&
+        data.rate is number && data.rate >= 0 && data.rate <= 1000000 &&
+        data.qty is int && data.qty >= 1 && data.qty <= 100000 &&
+        data.lineTotal is number && data.lineTotal >= 0 && data.lineTotal <= 100000000;
+    }
+
+    // Admins Registry Collection
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Medicines Catalog Collection (Public catalog items readable when active == true, full access for Admin)
+    match /medicines/{medicineId} {
+      allow get: if isValidId(medicineId) && (existing().active == true || isAdmin());
+      allow list: if existing().active == true || isAdmin();
+      allow create: if isVerified() && isValidId(medicineId) && isValidMedicine(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerified() && isValidId(medicineId) && isValidMedicine(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'nameLower', 'company', 'pack', 'rate', 'minQty', 'imageUrl', 'active', 'updatedAt']);
+      allow delete: if isVerified() && isValidId(medicineId) && isAdmin();
+    }
+
+    // Profiles Collection (PII Isolated to Owner or Admin)
+    match /profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if (isSignedIn() && existing().uid == request.auth.uid) || isAdmin();
+      allow create: if isVerified() && isValidId(userId) && isValidProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            isOwner(userId) &&
+            incoming().role == 'doctor' &&
+            incoming().approved == false &&
+            incoming().status == 'pending'
+          )
+        );
+      allow update: if isVerified() && isValidId(userId) && isValidProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().approved == existing().approved &&
+            incoming().status == existing().status &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'clinic', 'phone', 'city', 'updatedAt'])
+          )
+        );
+      allow delete: if isVerified() && isValidId(userId) && isAdmin();
+    }
+
+    // Orders Collection
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && ((isSignedIn() && existing().doctorId == request.auth.uid) || isAdmin());
+      allow list: if (isSignedIn() && existing().doctorId == request.auth.uid) || isAdmin();
+      allow create: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
+        incoming().doctorId == request.auth.uid &&
+        incoming().status == 'Pending' &&
+        incoming().courierName == '' &&
+        incoming().trackingNo == '' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isApprovedDoctor();
+      allow update: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
+        incoming().doctorId == existing().doctorId &&
+        incoming().orderNumber == existing().orderNumber &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'courierName', 'trackingNo', 'notes', 'updatedAt']);
+      allow delete: if isVerified() && isValidId(orderId) && isAdmin();
+
+      // Order Line Items Subcollection (Master Gate checks parent Order)
+      match /items/{itemId} {
+        allow get: if isValidId(orderId) && isValidId(itemId) && (
+          isAdmin() || (
+            isSignedIn() &&
+            exists(/databases/$(database)/documents/orders/$(orderId)) &&
+            get(/databases/$(database)/documents/orders/$(orderId)).data.doctorId == request.auth.uid
+          )
+        );
+        allow list: if (isSignedIn() && existing().doctorId == request.auth.uid) || isAdmin();
+        allow create: if isVerified() && isValidId(orderId) && isValidId(itemId) && isValidOrderItem(incoming(), orderId) &&
+          incoming().doctorId == request.auth.uid &&
+          exists(/databases/$(database)/documents/medicines/$(incoming().medicineId)) && (
+            isAdmin() || (
+              existsAfter(/databases/$(database)/documents/orders/$(orderId)) &&
+              getAfter(/databases/$(database)/documents/orders/$(orderId)).data.doctorId == request.auth.uid
+            )
+          );
+        allow update: if false;
+        allow delete: if isVerified() && isValidId(orderId) && isValidId(itemId) && isAdmin();
+      }
+    }
+  }
+}
