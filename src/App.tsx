@@ -33,7 +33,7 @@ function MainAppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f1f5f9] flex flex-col font-sans text-gray-900">
+    <div className="min-h-screen bg-[#f1f5f9] flex flex-col font-sans text-gray-900 pb-20">
       <Navbar
         search={search}
         setSearch={setSearch}
@@ -49,12 +49,16 @@ function MainAppContent() {
         {activeView === 'admin' && <AdminPanel />}
       </main>
 
-      {/* Bottom Fixed Mobile Navigation Bar (Matching Screenshot) */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 shadow-lg z-40 grid grid-cols-5 py-1.5 text-[11px] font-bold">
+      {/* Bottom Fixed Navigation Bar */}
+      <nav
+        style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999 }}
+        className="bg-white border-t border-gray-300 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] grid grid-cols-5 py-2 text-[11px] font-extrabold"
+      >
         <button
+          type="button"
           onClick={() => setActiveView('store')}
           className={`flex flex-col items-center justify-center gap-0.5 ${
-            activeView === 'store' ? 'text-[#155ed6]' : 'text-gray-600'
+            activeView === 'store' ? 'text-[#155ed6]' : 'text-gray-700'
           }`}
         >
           <Home className="w-5 h-5" />
@@ -62,17 +66,19 @@ function MainAppContent() {
         </button>
 
         <button
+          type="button"
           onClick={handleCategoryJump}
-          className="flex flex-col items-center justify-center gap-0.5 text-gray-600 hover:text-[#155ed6]"
+          className="flex flex-col items-center justify-center gap-0.5 text-gray-700 hover:text-[#155ed6]"
         >
           <LayoutGrid className="w-5 h-5" />
           <span>कैटेगरी</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveView('cart')}
-          className={`relative flex flex-col items-center justify-center gap-0.5 ${
-            activeView === 'cart' ? 'text-[#155ed6]' : 'text-gray-600'
+          className={`flex flex-col items-center justify-center gap-0.5 ${
+            activeView === 'cart' ? 'text-[#155ed6]' : 'text-gray-700'
           }`}
         >
           <div className="relative">
@@ -88,18 +94,19 @@ function MainAppContent() {
           href="https://wa.me/916203803959"
           target="_blank"
           rel="noreferrer"
-          className="flex flex-col items-center justify-center gap-0.5 text-gray-600 hover:text-[#19a84b]"
+          className="flex flex-col items-center justify-center gap-0.5 text-gray-700 hover:text-[#19a84b]"
         >
           <Headphones className="w-5 h-5" />
           <span>सपोर्ट</span>
         </a>
 
         <button
+          type="button"
           onClick={handleMoreClick}
           className={`flex flex-col items-center justify-center gap-0.5 ${
             activeView === 'admin' || activeView === 'orders' || activeView === 'auth'
               ? 'text-[#155ed6]'
-              : 'text-gray-600'
+              : 'text-gray-700'
           }`}
         >
           <MoreHorizontal className="w-5 h-5" />
