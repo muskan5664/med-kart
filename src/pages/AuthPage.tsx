@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { ShieldCheck, Stethoscope, Lock, Mail, Phone, MapPin, FileBadge } from 'lucide-react';
 import { auth, db, ADMIN_EMAIL } from '../lib/firebase';
 import { PageView } from '../components/Navbar';
+import { useAuth } from '../context/AuthContext';
 
 interface AuthPageProps {
   setActiveView: (view: PageView) => void;
 }
 
 export default function AuthPage({ setActiveView }: AuthPageProps) {
+  const { refreshProfile } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -32,18 +34,24 @@ export default function AuthPage({ setActiveView }: AuthPageProps) {
         const res = await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
         const isAdminUser = form.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-        await setDoc(doc(db, 'users', res.user.uid), {
-          uid: res.user.uid,
-          email: form.email.trim(),
-          doctorName: form.doctorName.trim(),
-          clinicName: form.clinicName.trim(),
-          rmpNo: form.rmpNo.trim().toUpperCase(),
-          phone: form.phone.trim(),
-          address: form.address.trim(),
-          role: isAdminUser ? 'admin' : 'rmp',
-          verified: isAdminUser ? true : false,
-          createdAt: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(db, 'users', res.user.uid), {
+            uid: res.user.uid,
+            email: form.email.trim(),
+            doctorName: form.doctorName.trim(),
+            clinicName: form.clinicName.trim(),
+            rmpNo: form.rmpNo.trim().toUpperCase(),
+            phone: form.phone.trim(),
+            address: form.address.trim(),
+            role: isAdminUser ? 'admin' : 'rmp',
+            verified: isAdminUser ? true : false,
+            createdAt: new Date().toISOString()
+          });
+        } catch (profileErr) {
+          await deleteUser(res.user).catch(() => {});
+          throw profileErr;
+        }
+        await refreshProfile();
       }
       setActiveView('store');
     } catch (err: any) {
