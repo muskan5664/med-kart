@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Plus, Minus, ShoppingCart, Pill } from 'lucide-react';
 import { Medicine } from '../types';
 import { useCart } from '../context/CartContext';
@@ -10,20 +10,25 @@ interface ProductCardProps {
 
 export default function ProductCard({ item, onSelect }: ProductCardProps) {
   const { cart, addToCart, updateQty } = useCart();
+  const [imgFailed, setImgFailed] = useState(false);
   const inCart = cart.find((c) => c.id === item.id);
+
+  const showImage = Boolean(item.imageUrl) && !imgFailed;
 
   return (
     <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 border border-gray-200 overflow-hidden flex flex-col justify-between">
-      {/* Clickable Top Area -> Opens Flipkart-Style Full Product Details */}
+      {/* Clickable Top Area -> Opens Full Product Details */}
       <div
         onClick={() => onSelect?.(item)}
         className="cursor-pointer group"
       >
         <div className="w-full h-28 sm:h-36 bg-gradient-to-b from-slate-50 to-white flex items-center justify-center p-2 border-b border-gray-100 relative">
-          {item.imageUrl ? (
+          {showImage ? (
             <img
               src={item.imageUrl}
               alt={item.name}
+              loading="lazy"
+              onError={() => setImgFailed(true)}
               className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
             />
           ) : (
