@@ -98,8 +98,13 @@ export default function StorePage({ search, setSearch, setActiveView }: StorePag
           console.warn('Error parsing medicines.json:', e);
         }
 
-        const snap = await getDocs(collection(db, 'products'));
-        const rawFsList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine & { hidden?: boolean }));
+        let rawFsList: (Medicine & { hidden?: boolean })[] = [];
+        try {
+          const snap = await getDocs(collection(db, 'products'));
+          rawFsList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine & { hidden?: boolean }));
+        } catch (e) {
+          console.warn('Firestore products load failed, using static catalog only:', e);
+        }
         const fsIdSet = new Set(rawFsList.map((item) => item.id));
         const visibleFsList = rawFsList.filter((item) => !item.hidden);
 
