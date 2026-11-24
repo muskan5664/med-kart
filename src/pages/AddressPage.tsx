@@ -35,10 +35,11 @@ export default function AddressPage({ delivery, setDelivery, setActiveView }: Ad
     }
   }, [profile]);
 
-  if (cart.length === 0) {
-    setActiveView('cart');
-    return null;
-  }
+  useEffect(() => {
+    if (cart.length === 0) setActiveView('cart');
+  }, [cart.length, setActiveView]);
+
+  if (cart.length === 0) return null;
 
   const handleSaveAndProceed = (e: React.FormEvent) => {
     e.preventDefault();
