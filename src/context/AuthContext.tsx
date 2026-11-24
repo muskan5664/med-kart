@@ -21,21 +21,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (uid: string) => {
-    const docSnap = await getDoc(doc(db, 'users', uid));
-    if (docSnap.exists()) {
-      setProfile({ uid, ...docSnap.data() } as UserProfile);
+    try {
+      const docSnap = await getDoc(doc(db, 'users', uid));
+      setProfile(docSnap.exists() ? ({ uid, ...docSnap.data() } as UserProfile) : null);
+    } catch (err) {
+      console.error('Profile load failed:', err);
+      setProfile(null);
     }
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      if (currentUser) {
-        await fetchProfile(currentUser.uid);
-      } else {
-        setProfile(null);
+      try {
+        if (currentUser) {
+          await fetchProfile(currentUser.uid);
+        } else {
+          setProfile(null);
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsubscribe;
   }, []);
@@ -45,7 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) await fetchProfile(user.uid);
   };
 
-  const isAdmin = user?.email === ADMIN_EMAIL || profile?.role === 'admin';
+  const isAdmin =
+    (!!user?.email && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) || profile?.role === 'admin';
 
   return (
     <AuthContext.Provider value={{ user, profile, isAdmin, logout, refreshProfile, loading }}>
