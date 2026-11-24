@@ -332,6 +332,12 @@ export default function AdminPanel() {
 
   const handleSaveMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!medForm.name.trim() || !medForm.salt.trim() || !medForm.company.trim()) {
+      return alert('Name, Salt aur Company zaroori hain.');
+    }
+    if (![medForm.mrp, medForm.ptr, medForm.gst, medForm.stock].every((v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0)) {
+      return alert('MRP, PTR, GST aur Stock sahi number hone chahiye.');
+    }
     const payload = {
       name: medForm.name.trim(),
       salt: medForm.salt.trim(),
@@ -347,12 +353,16 @@ export default function AdminPanel() {
       hidden: false
     };
 
-    if (editingId) {
-      await setDoc(doc(db, 'products', editingId), payload, { merge: true });
-      showToast('Medicine updated successfully!');
-    } else {
-      await addDoc(collection(db, 'products'), payload);
-      showToast('New medicine added to store!');
+    try {
+      if (editingId) {
+        await setDoc(doc(db, 'products', editingId), payload, { merge: true });
+        showToast('Medicine updated successfully!');
+      } else {
+        await addDoc(collection(db, 'products'), payload);
+        showToast('New medicine added to store!');
+      }
+    } catch (err: any) {
+      return alert('Save failed: ' + (err?.message || err));
     }
 
     setMedForm(EMPTY_MED);
@@ -381,10 +391,14 @@ export default function AdminPanel() {
   // Delete Custom Medicine OR Hide Static JSON Medicine
   const handleDeleteMedicine = async (p: Medicine) => {
     if (!window.confirm(`Kya aap "${p.name}" ko catalog se delete karna chahte hain?`)) return;
-    if (firestoreIds.has(p.id) && !p.id.startsWith('med-')) {
-      await deleteDoc(doc(db, 'products', p.id));
-    } else {
-      await setDoc(doc(db, 'products', p.id), { ...p, hidden: true }, { merge: true });
+    try {
+      if (firestoreIds.has(p.id) && !p.id.startsWith('med-')) {
+        await deleteDoc(doc(db, 'products', p.id));
+      } else {
+        await setDoc(doc(db, 'products', p.id), { ...p, hidden: true }, { merge: true });
+      }
+    } catch (err: any) {
+      return alert('Delete failed: ' + (err?.message || err));
     }
     if (editingId === p.id) {
       setEditingId(null);
@@ -395,8 +409,12 @@ export default function AdminPanel() {
   };
 
   const toggleVerifyDoctor = async (uid: string, current: boolean) => {
-    await updateDoc(doc(db, 'users', uid), { verified: !current });
-    showToast(!current ? 'RMP Doctor Verified!' : 'RMP Verification Revoked');
+    try {
+      await updateDoc(doc(db, 'users', uid), { verified: !current });
+      showToast(!current ? 'RMP Doctor Verified!' : 'RMP Verification Revoked');
+    } catch (err: any) {
+      alert('Verify update failed: ' + (err?.message || err));
+    }
   };
 
   const totalRevenue = orders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.grandTotal : 0), 0);
