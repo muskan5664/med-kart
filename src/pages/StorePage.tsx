@@ -40,6 +40,35 @@ function detectCategory(name: string, salt: string, company: string): string {
   return 'Tablet';
 }
 
+async function loadMedicineImageMap(): Promise> {
+  const imageMap = new Map<string, string>();
+  try {
+    const res = await fetch('/medicine_images.jsonl.json');
+    if (res.ok) {
+      const text = await res.text();
+      const lines = text.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const obj = JSON.parse(trimmed);
+          if (obj.name && obj.image_url && obj.confidence !== 'dead_link') {
+            const key = String(obj.name).trim().toUpperCase();
+            if (!imageMap.has(key)) {
+              imageMap.set(key, String(obj.image_url).trim());
+            }
+          }
+        } catch {
+          // Skip invalid JSON line
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Error loading medicine_images.jsonl.json:', e);
+  }
+  return imageMap;
+}
+
 export default function StorePage({ search, setSearch, setActiveView }: StorePageProps) {
   const [products, setProducts] = useState<Medicine[]>([]);
   const [category, setCategory] = useState<string>('All');
@@ -50,7 +79,9 @@ export default function StorePage({ search, setSearch, setActiveView }: StorePag
   useEffect(() => {
     const fetchAllMedicines = async () => {
       try {
+        const imageMap = await loadMedicineImageMap();
         let staticList: Medicine[] = [];
+
         try {
           const res = await fetch('/medicines.json');
           if (res.ok) {
@@ -86,7 +117,8 @@ export default function StorePage({ search, setSearch, setActiveView }: StorePag
                       gst: 12,
                       stock,
                       expiry,
-                      packing
+                      packing,
+                      imageUrl: imageMap.get(rawName.toUpperCase()) || ''
                     });
                   }
                 }
@@ -98,15 +130,15 @@ export default function StorePage({ search, setSearch, setActiveView }: StorePag
           console.warn('Error parsing medicines.json:', e);
         }
 
-        let rawFsList: (Medicine & { hidden?: boolean })[] = [];
-        try {
-          const snap = await getDocs(collection(db, 'products'));
-          rawFsList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine & { hidden?: boolean }));
-        } catch (e) {
-          console.warn('Firestore products load failed, using static catalog only:', e);
-        }
+        const snap = await getDocs(collection(db, 'products'));
+        const rawFsList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine & { hidden?: boolean }));
         const fsIdSet = new Set(rawFsList.map((item) => item.id));
-        const visibleFsList = rawFsList.filter((item) => !item.hidden);
+        const visibleFsList = rawFsList
+          .filter((item) => !item.hidden)
+          .map((item) => ({
+            ...item,
+            imageUrl: item.imageUrl || imageMap.get(item.name.trim().toUpperCase()) || ''
+          }));
 
         const combined = [
           ...visibleFsList,
@@ -353,7 +385,7 @@ export default function StorePage({ search, setSearch, setActiveView }: StorePag
         </>
       )}
 
-      {/* Flipkart-Style Full Screen Product Detail Modal */}
+      {/* Full Screen Product Detail Modal */}
       {selectedMed && (
         <ProductDetailModal
           item={selectedMed}
