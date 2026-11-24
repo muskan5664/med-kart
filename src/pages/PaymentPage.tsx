@@ -14,7 +14,6 @@ import {
   MapPin,
   ReceiptText,
   Sparkles,
-  Wallet,
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useCart } from '../context/CartContext';
@@ -33,7 +32,15 @@ const STORE_PAYEE_NAME = 'RMP Store';
 type UpiAppOption = 'PHONEPE' | 'GPAY' | 'PAYTM' | 'BHIM_QR';
 
 /* --- Local Uploaded Brand Logo Component with Safe Fallback --- */
-const BrandLogo = ({ src, alt, fallbackText }: { src: string; alt: string; fallbackText: string }) => {
+const BrandLogo = ({
+  src,
+  alt,
+  fallbackText,
+}: {
+  src: string;
+  alt: string;
+  fallbackText: string;
+}) => {
   const [imgError, setImgError] = useState(false);
 
   return (
@@ -202,7 +209,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
   const totalItemsCount = cart.reduce((acc, item) => acc + item.qty, 0);
 
   return (
-    <div className="max-w-2xl mx-auto pb-28 space-y-3">
+    <div className="max-w-2xl mx-auto pb-44 md:pb-28 space-y-3">
       {/* 1. Flipkart-Style Top Header & 3-Step Stepper */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100">
@@ -498,8 +505,8 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
         <span>Safe and Secure Payments • 100% Authentic Wholesale Medicines with GST Bill</span>
       </div>
 
-      {/* 6. Fixed Flipkart-Style Sticky Bottom Checkout Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] z-40">
+      {/* 6. Fixed Flipkart-Style Sticky Bottom Checkout Bar (Positioned above Mobile Bottom Nav) */}
+      <div className="fixed bottom-[64px] md:bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] z-50">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div>
             <p className="text-lg font-black text-gray-900 leading-none">₹{grandTotal}</p>
@@ -512,7 +519,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
             type="button"
             disabled={placing}
             onClick={handleConfirmOrder}
-            className="bg-[#fb641b] hover:bg-[#e85a13] disabled:opacity-60 text-white font-extrabold text-sm px-7 py-3.5 rounded-xl shadow-md transition cursor-pointer"
+            className="bg-[#fb641b] hover:bg-[#e85a13] disabled:opacity-60 text-white font-extrabold text-sm px-7 py-3 rounded-xl shadow-md transition cursor-pointer"
           >
             {placing ? 'Placing Order...' : 'Place Order'}
           </button>
