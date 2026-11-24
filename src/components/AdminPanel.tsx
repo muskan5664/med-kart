@@ -32,7 +32,10 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  ChevronDown,
+  ClipboardList,
+  IndianRupee
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -96,7 +99,7 @@ const compressMedicineImage = (file: File): Promise<string> => {
 export default function AdminPanel() {
   const { isAdmin } = useAuth();
   // Default 'catalog' tab so Add / Edit / Delete medicine tools are immediately visible
-  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('catalog');
+  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'doctors'>('orders');
 
   // Orders States (Real-time)
   const [orders, setOrders] = useState<Order[]>([]);
@@ -122,6 +125,9 @@ export default function AdminPanel() {
 
   // RMP Doctors States
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
+  const [doctorFilter, setDoctorFilter] = useState<'All' | 'Pending' | 'Verified'>('All');
+  const [doctorSearch, setDoctorSearch] = useState('');
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -265,7 +271,7 @@ export default function AdminPanel() {
 
   if (!isAdmin) {
     return (
-      <div className="bg-white p-10 rounded-md shadow text-center text-red-600 font-bold">
+      <div className="bg-white p-10 rounded-2xl border border-slate-200 text-center text-red-600 font-bold">
         Access Denied: Admin login required.
       </div>
     );
@@ -399,7 +405,7 @@ export default function AdminPanel() {
   const getStatusStyle = (status: OrderStatus) => {
     switch (status) {
       case 'Confirmed':
-        return 'bg-blue-100 text-blue-800 border-blue-300';
+        return 'bg-teal-100 text-teal-800 border-teal-300';
       case 'Packed':
         return 'bg-amber-100 text-amber-800 border-amber-300';
       case 'Shipped':
@@ -417,597 +423,766 @@ export default function AdminPanel() {
     return 'Cash on Delivery (COD)';
   };
 
+  const inputCls =
+    'w-full h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand focus:ring-4 focus:ring-teal-600/10 focus:outline-none transition';
+  const labelCls = 'block text-xs font-semibold text-slate-600 mb-1.5';
+  const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  const inr = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+  const STEPS: OrderStatus[] = ['Confirmed', 'Packed', 'Shipped', 'Delivered'];
+
+  const pendingDoctors = doctors.filter((d) => !d.verified && d.role !== 'admin').length;
+  const lowStockCount = products.filter((p) => p.stock > 0 && p.stock <= 10).length;
+
+  const livePtr = Number(medForm.ptr);
+  const liveMrp = Number(medForm.mrp);
+  const liveMargin = liveMrp > 0 && livePtr > 0 ? ((liveMrp - livePtr) / liveMrp) * 100 : null;
+
+  const filteredDoctors = doctors.filter((d) => {
+    const q = doctorSearch.toLowerCase().trim();
+    const matchesFilter =
+      doctorFilter === 'All' || (doctorFilter === 'Pending' ? !d.verified : !!d.verified);
+    const matchesQuery =
+      !q ||
+      (d.clinicName || '').toLowerCase().includes(q) ||
+      (d.doctorName || '').toLowerCase().includes(q) ||
+      (d.rmpNo || '').toLowerCase().includes(q) ||
+      (d.phone || '').includes(q) ||
+      (d.email || '').toLowerCase().includes(q);
+    return matchesFilter && matchesQuery;
+  });
+
+  const tabs = [
+    { id: 'orders' as const, label: 'Orders', icon: PackageCheck, count: orders.length, alert: pendingOrdersCount },
+    { id: 'catalog' as const, label: 'Catalog', icon: Pill, count: products.length, alert: 0 },
+    { id: 'doctors' as const, label: 'RMP Clinics', icon: Users, count: doctors.length, alert: pendingDoctors }
+  ];
+
+  const kpis = [
+    { label: 'Total orders', value: orders.length.toLocaleString('en-IN'), sub: `${pendingOrdersCount} to fulfil`, subTone: pendingOrdersCount ? 'text-amber-600' : 'text-slate-400', icon: ClipboardList, tint: 'bg-teal-50 text-teal-700' },
+    { label: 'Revenue', value: inr(totalRevenue), sub: 'Excludes cancelled', subTone: 'text-slate-400', icon: IndianRupee, tint: 'bg-emerald-50 text-emerald-700' },
+    { label: 'Catalog items', value: products.length.toLocaleString('en-IN'), sub: `${lowStockCount} low stock`, subTone: lowStockCount ? 'text-amber-600' : 'text-slate-400', icon: Pill, tint: 'bg-sky-50 text-sky-700' },
+    { label: 'RMP clinics', value: doctors.length.toLocaleString('en-IN'), sub: `${pendingDoctors} awaiting approval`, subTone: pendingDoctors ? 'text-amber-600' : 'text-slate-400', icon: Users, tint: 'bg-violet-50 text-violet-700' }
+  ];
+
+  const Pager = ({ page, total, onChange }: { page: number; total: number; onChange: (n: number) => void }) =>
+    total > 1 ? (
+      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-xs font-semibold text-slate-600">
+        <span>Page {page} of {total}</span>
+        <div className="flex gap-2">
+          <button disabled={page === 1} onClick={() => onChange(page - 1)} className="h-9 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 flex items-center gap-1">
+            <ChevronLeft className="w-4 h-4" /> Prev
+          </button>
+          <button disabled={page === total} onClick={() => onChange(page + 1)} className="h-9 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 flex items-center gap-1">
+            Next <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    ) : null;
+
+  const searchBox = (value: string, onChange: (v: string) => void, placeholder: string) => (
+    <div className="relative w-full sm:w-80">
+      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      <input
+        type="text"
+        placeholder={placeholder}
+        className={`${inputCls} pl-9`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+
   return (
-    <div className="space-y-5 relative">
-      {/* Floating Success Toast Notification */}
+    <div className="space-y-6 relative animate-fade-up">
+      {/* Toast */}
       {toastMsg && (
-        <div className="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-md shadow-xl border-l-4 border-emerald-400 flex items-center gap-2.5 text-xs font-bold">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="fixed bottom-5 right-5 left-5 sm:left-auto z-[60] bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-sm font-medium">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* Top KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-[#2874f0]">
-          <p className="text-[11px] text-gray-500 font-bold uppercase">Total Orders</p>
-          <p className="text-2xl font-extrabold text-gray-900 mt-1">{orders.length}</p>
-          <p className="text-[11px] text-amber-600 font-semibold mt-0.5">{pendingOrdersCount} Active / Pending</p>
-        </div>
-        <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-emerald-500">
-          <p className="text-[11px] text-gray-500 font-bold uppercase">Total Revenue</p>
-          <p className="text-2xl font-extrabold text-emerald-700 mt-1">₹{totalRevenue.toLocaleString()}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">Excl. Cancelled</p>
-        </div>
-        <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-amber-500">
-          <p className="text-[11px] text-gray-500 font-bold uppercase">Catalog Medicines</p>
-          <p className="text-2xl font-extrabold text-gray-900 mt-1">{products.length.toLocaleString()}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">Ready Stock</p>
-        </div>
-        <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-purple-500">
-          <p className="text-[11px] text-gray-500 font-bold uppercase">Registered RMPs</p>
-          <p className="text-2xl font-extrabold text-gray-900 mt-1">{doctors.length}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">Verified Clinics</p>
+      {/* Page header */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Admin Console</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Orders, catalog aur RMP clinics ek hi jagah se manage karein.</p>
         </div>
       </div>
 
-      {/* Main Navigation Tabs */}
-      <div className="bg-white p-2.5 rounded-md shadow-sm border flex flex-wrap gap-2">
-        <button
-          onClick={() => setActiveTab('catalog')}
-          className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 transition ${
-            activeTab === 'catalog' ? 'bg-[#2874f0] text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <Pill className="w-4 h-4" /> Add / Edit Medicines ({products.length.toLocaleString()})
-        </button>
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 transition ${
-            activeTab === 'orders' ? 'bg-[#2874f0] text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <PackageCheck className="w-4 h-4" /> Manage Orders ({orders.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('doctors')}
-          className={`px-4 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 transition ${
-            activeTab === 'doctors' ? 'bg-[#2874f0] text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <Users className="w-4 h-4" /> RMP Clinics ({doctors.length})
-        </button>
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+        {kpis.map((k) => (
+          <div key={k.label} className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-500">{k.label}</p>
+              <p className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1.5 tabular-nums truncate">{k.value}</p>
+              <p className={`text-xs font-medium mt-1 ${k.subTone}`}>{k.sub}</p>
+            </div>
+            <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${k.tint}`}>
+              <k.icon className="w-5 h-5" />
+            </span>
+          </div>
+        ))}
       </div>
 
-      {/* ==================== TAB 1: MEDICINES CATALOG (ADD / EDIT / DELETE) ==================== */}
+      {/* Pending approvals banner */}
+      {pendingDoctors > 0 && activeTab !== 'doctors' && (
+        <button
+          onClick={() => { setActiveTab('doctors'); setDoctorFilter('Pending'); }}
+          className="w-full flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl px-4 py-3 text-sm text-left hover:bg-amber-100 transition"
+        >
+          <span className="flex items-center gap-2.5 font-semibold">
+            <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
+            {pendingDoctors} RMP clinic{pendingDoctors > 1 ? 's' : ''} verification ka intezaar kar rahe hain
+          </span>
+          <span className="flex items-center gap-1 font-bold shrink-0">Review <ArrowRight className="w-4 h-4" /></span>
+        </button>
+      )}
+
+      {/* Tabs */}
+      <div className="border-b border-slate-200 flex gap-1 overflow-x-auto no-scrollbar">
+        {tabs.map((t) => {
+          const active = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`relative px-4 py-3 text-sm font-bold flex items-center gap-2 whitespace-nowrap border-b-2 -mb-px transition ${
+                active ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <t.icon className="w-4 h-4" />
+              {t.label}
+              <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold tabular-nums ${active ? 'bg-teal-50 text-brand' : 'bg-slate-100 text-slate-500'}`}>
+                {t.count.toLocaleString('en-IN')}
+              </span>
+              {t.alert > 0 && <span className="w-2 h-2 rounded-full bg-orange-500" title={`${t.alert} need attention`} />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ==================== CATALOG ==================== */}
       {activeTab === 'catalog' && (
-        <div className="grid lg:grid-cols-3 gap-6">
-          <form onSubmit={handleSaveMedicine} className="bg-white p-5 rounded-md shadow-sm border space-y-3 text-xs h-fit">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-sm font-bold text-[#2874f0] flex items-center gap-1.5">
-                <PlusCircle className="w-4 h-4" />
-                {editingId ? 'Edit Medicine & Photo' : 'Add New Medicine'}
+        <div className="grid lg:grid-cols-[380px_1fr] gap-6 items-start">
+          <form onSubmit={handleSaveMedicine} className="bg-white rounded-2xl border border-slate-200 shadow-sm lg:sticky lg:top-24 overflow-hidden">
+            <div className="flex justify-between items-center px-5 py-4 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span className="w-8 h-8 rounded-lg bg-teal-50 text-brand flex items-center justify-center">
+                  {editingId ? <Pencil className="w-4 h-4" /> : <PlusCircle className="w-4 h-4" />}
+                </span>
+                {editingId ? 'Edit medicine' : 'Add medicine'}
               </h3>
               {editingId && (
-                <button type="button" onClick={() => { setEditingId(null); setMedForm(EMPTY_MED); }} className="text-red-500 flex items-center gap-0.5 font-bold">
+                <button type="button" onClick={() => { setEditingId(null); setMedForm(EMPTY_MED); }} className="text-xs font-bold text-slate-500 hover:text-red-600 flex items-center gap-1">
                   <X className="w-3.5 h-3.5" /> Cancel
                 </button>
               )}
             </div>
 
-            {/* Medicine Photo Upload & URL */}
-            <div className="border border-dashed border-gray-300 rounded-sm p-3 bg-gray-50">
-              <label className="font-bold text-gray-700 block mb-1.5 flex items-center gap-1">
-                <ImagePlus className="w-4 h-4 text-[#2874f0]" /> Medicine Photo (Upload or Paste Image Link)
-              </label>
-              <div className="flex items-center gap-3">
-                {medForm.imageUrl ? (
-                  <div className="relative w-16 h-16 bg-white border rounded overflow-hidden shrink-0">
-                    <img src={medForm.imageUrl} alt="Preview" className="w-full h-full object-contain" />
-                    <button type="button" onClick={() => setMedForm({ ...medForm, imageUrl: '' })} className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl">
-                      <X className="w-3 h-3" />
-                    </button>
+            <div className="p-5 space-y-4">
+              {/* Photo */}
+              <div>
+                <span className={labelCls}>Photo</span>
+                <div className="flex items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                  {medForm.imageUrl ? (
+                    <div className="relative w-16 h-16 bg-white border rounded-lg overflow-hidden shrink-0">
+                      <img src={medForm.imageUrl} alt="Preview" className="w-full h-full object-contain" />
+                      <button type="button" onClick={() => setMedForm({ ...medForm, imageUrl: '' })} className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl" aria-label="Remove photo">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 bg-white border rounded-lg flex items-center justify-center text-slate-300 shrink-0">
+                      <ImagePlus className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-brand hover:file:bg-teal-100" />
+                    <input type="text" placeholder="…ya image URL paste karein" className={`${inputCls} h-9 text-xs`} value={medForm.imageUrl.startsWith('data:') ? '' : medForm.imageUrl} onChange={(e) => setMedForm({ ...medForm, imageUrl: e.target.value })} />
                   </div>
-                ) : (
-                  <div className="w-16 h-16 bg-white border rounded flex items-center justify-center text-gray-300 shrink-0">
-                    <Pill className="w-6 h-6" />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Brand name *</label>
+                <input type="text" required placeholder="e.g. Dolo 650mg Tablet" className={inputCls} value={medForm.name} onChange={(e) => setMedForm({ ...medForm, name: e.target.value })} />
+              </div>
+              <div>
+                <label className={labelCls}>Salt / composition *</label>
+                <input type="text" required placeholder="e.g. Paracetamol IP 650mg" className={inputCls} value={medForm.salt} onChange={(e) => setMedForm({ ...medForm, salt: e.target.value })} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Company *</label>
+                  <input type="text" required placeholder="Micro Labs" className={inputCls} value={medForm.company} onChange={(e) => setMedForm({ ...medForm, company: e.target.value })} />
+                </div>
+                <div>
+                  <label className={labelCls}>Category *</label>
+                  <select className={inputCls} value={medForm.category} onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}>
+                    <option>Tablets & Caps</option>
+                    <option>Syrups & Drops</option>
+                    <option>Injections</option>
+                    <option>Ointments & Derma</option>
+                    <option>Surgical & Care</option>
+                    <option>Veterinary</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-1">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Pricing</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className={labelCls}>MRP (₹) *</label>
+                    <input type="number" step="0.01" required placeholder="120" className={inputCls} value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
                   </div>
+                  <div>
+                    <label className={labelCls}>PTR (₹) *</label>
+                    <input type="number" step="0.01" required placeholder="78" className={inputCls} value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>GST</label>
+                    <select className={inputCls} value={medForm.gst} onChange={(e) => setMedForm({ ...medForm, gst: e.target.value })}>
+                      <option value="5">5%</option>
+                      <option value="12">12%</option>
+                      <option value="18">18%</option>
+                    </select>
+                  </div>
+                </div>
+                {liveMargin !== null && (
+                  <p className={`mt-2 text-xs font-semibold rounded-lg px-3 py-2 ${liveMargin < 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                    {liveMargin < 0 ? 'PTR, MRP se zyada hai — check karein.' : `Doctor margin: ${liveMargin.toFixed(1)}% (₹${(liveMrp - livePtr).toFixed(2)} per unit)`}
+                  </p>
                 )}
-                <div className="flex-1 space-y-1.5">
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-[11px] text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-sm file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-[#2874f0]" />
-                  <input type="text" placeholder="Direct Image URL paste karein (.jpg/.png)..." className="w-full border bg-white p-1.5 rounded-sm text-[11px]" value={medForm.imageUrl.startsWith('data:') ? '' : medForm.imageUrl} onChange={(e) => setMedForm({ ...medForm, imageUrl: e.target.value })} />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className={labelCls}>Stock</label>
+                  <input type="number" required className={inputCls} value={medForm.stock} onChange={(e) => setMedForm({ ...medForm, stock: e.target.value })} />
+                </div>
+                <div>
+                  <label className={labelCls}>Expiry *</label>
+                  <input type="text" required placeholder="12/2028" className={inputCls} value={medForm.expiry} onChange={(e) => setMedForm({ ...medForm, expiry: e.target.value })} />
+                </div>
+                <div>
+                  <label className={labelCls}>Packing</label>
+                  <input type="text" placeholder="10 Tabs" className={inputCls} value={medForm.packing} onChange={(e) => setMedForm({ ...medForm, packing: e.target.value })} />
                 </div>
               </div>
             </div>
 
-            <div>
-              <label className="font-bold text-gray-600 block mb-1">Brand Name *</label>
-              <input type="text" required placeholder="e.g. Dolo 650mg Tablet" className="w-full border p-2 rounded-sm" value={medForm.name} onChange={(e) => setMedForm({ ...medForm, name: e.target.value })} />
+            <div className="px-5 py-4 bg-slate-50 border-t border-slate-100">
+              <button type="submit" className="w-full h-11 bg-brand hover:bg-brand-dark text-white font-bold rounded-xl text-sm shadow-sm transition active:scale-[0.99]">
+                {editingId ? 'Update medicine' : 'Save medicine'}
+              </button>
             </div>
-
-            <div>
-              <label className="font-bold text-gray-600 block mb-1">Salt / Composition *</label>
-              <input type="text" required placeholder="e.g. Paracetamol IP 650mg" className="w-full border p-2 rounded-sm" value={medForm.salt} onChange={(e) => setMedForm({ ...medForm, salt: e.target.value })} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Company *</label>
-                <input type="text" required placeholder="Micro Labs" className="w-full border p-2 rounded-sm" value={medForm.company} onChange={(e) => setMedForm({ ...medForm, company: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Category *</label>
-                <select className="w-full border p-2 rounded-sm" value={medForm.category} onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}>
-                  <option>Tablets & Caps</option>
-                  <option>Syrups & Drops</option>
-                  <option>Injections</option>
-                  <option>Ointments & Derma</option>
-                  <option>Surgical & Care</option>
-                  <option>Veterinary</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">MRP (₹) *</label>
-                <input type="number" step="0.01" required placeholder="120" className="w-full border p-2 rounded-sm" value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">RMP PTR (₹) *</label>
-                <input type="number" step="0.01" required placeholder="78" className="w-full border p-2 rounded-sm" value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">GST %</label>
-                <select className="w-full border p-2 rounded-sm" value={medForm.gst} onChange={(e) => setMedForm({ ...medForm, gst: e.target.value })}>
-                  <option value="5">5%</option>
-                  <option value="12">12%</option>
-                  <option value="18">18%</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Stock</label>
-                <input type="number" required className="w-full border p-2 rounded-sm" value={medForm.stock} onChange={(e) => setMedForm({ ...medForm, stock: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Expiry *</label>
-                <input type="text" required placeholder="12/2028" className="w-full border p-2 rounded-sm" value={medForm.expiry} onChange={(e) => setMedForm({ ...medForm, expiry: e.target.value })} />
-              </div>
-              <div>
-                <label className="font-bold text-gray-600 block mb-1">Packing</label>
-                <input type="text" placeholder="10 Tabs" className="w-full border p-2 rounded-sm" value={medForm.packing} onChange={(e) => setMedForm({ ...medForm, packing: e.target.value })} />
-              </div>
-            </div>
-
-            <button type="submit" className={`w-full text-white font-bold py-2.5 rounded-sm uppercase ${editingId ? 'bg-[#2874f0] hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-              {editingId ? 'Update Medicine Details' : 'Save New Medicine'}
-            </button>
           </form>
 
-          {/* Existing Catalog List with Edit & Delete */}
-          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm border space-y-3">
-            <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
-              <h3 className="text-sm font-bold text-gray-700">All Medicines ({filteredAdminProducts.length.toLocaleString()})</h3>
-              <div className="relative w-full sm:w-72">
-                <input type="text" placeholder="Search Brand, Salt or Company..." className="w-full border border-gray-300 rounded-sm py-1.5 px-3 pr-8 text-xs" value={adminSearch} onChange={(e) => setAdminSearch(e.target.value)} />
-                <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2" />
-              </div>
+          {/* Catalog list */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-w-0">
+            <div className="flex flex-wrap justify-between items-center gap-3 px-4 sm:px-5 py-4 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900">
+                All medicines <span className="text-slate-400 font-semibold text-sm ml-1">{filteredAdminProducts.length.toLocaleString('en-IN')}</span>
+              </h3>
+              {searchBox(adminSearch, setAdminSearch, 'Search brand, salt or company…')}
             </div>
 
             {loadingCatalog ? (
-              <p className="text-center py-8 text-xs text-gray-500">Loading catalog...</p>
+              <div className="p-5 space-y-3">
+                {[1, 2, 3, 4, 5].map((n) => <div key={n} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}
+              </div>
+            ) : paginatedAdminProducts.length === 0 ? (
+              <p className="text-center py-14 text-sm text-slate-500">Koi medicine nahi mili.</p>
             ) : (
-              <div className="space-y-2">
-                {paginatedAdminProducts.map((p) => (
-                  <div
-                    key={p.id}
-                    className={`flex justify-between items-center border p-3 rounded-sm text-xs gap-3 ${
-                      editingId === p.id ? 'border-[#2874f0] bg-blue-50/50' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-11 h-11 bg-gray-50 border rounded flex items-center justify-center overflow-hidden shrink-0">
-                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" /> : <Pill className="w-5 h-5 text-gray-300" />}
+              <>
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+                      <tr>
+                        <th className="text-left font-bold px-5 py-3">Medicine</th>
+                        <th className="text-left font-bold px-3 py-3">Pack / Expiry</th>
+                        <th className="text-right font-bold px-3 py-3">PTR</th>
+                        <th className="text-right font-bold px-3 py-3">MRP</th>
+                        <th className="text-right font-bold px-3 py-3">Stock</th>
+                        <th className="px-5 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedAdminProducts.map((p) => (
+                        <tr key={p.id} className={editingId === p.id ? 'bg-teal-50/60' : 'hover:bg-slate-50'}>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+                                {p.imageUrl ? <img src={p.imageUrl} alt="" loading="lazy" className="w-full h-full object-contain" /> : <Pill className="w-4 h-4 text-slate-300" />}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-bold text-slate-900 truncate max-w-[260px]">{p.name}</p>
+                                <p className="text-xs text-slate-500 truncate max-w-[260px]">{p.company} · {p.salt}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-slate-600">
+                            <p className="truncate max-w-[130px]">{p.packing}</p>
+                            <p className="text-slate-400">Exp {p.expiry}</p>
+                          </td>
+                          <td className="px-3 py-3 text-right font-bold text-slate-900 tabular-nums">₹{p.ptr}</td>
+                          <td className="px-3 py-3 text-right text-slate-500 tabular-nums">₹{p.mrp}</td>
+                          <td className="px-3 py-3 text-right">
+                            <span className={`text-xs font-bold px-2 py-1 rounded-full tabular-nums ${
+                              p.stock <= 0 ? 'bg-red-50 text-red-600' : p.stock <= 10 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                            }`}>
+                              {p.stock <= 0 ? 'Out' : p.stock}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3">
+                            <div className="flex justify-end gap-1.5">
+                              <button onClick={() => startEditMedicine(p)} className="h-8 px-3 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-brand text-slate-700 text-xs font-bold flex items-center gap-1.5 transition">
+                                <Pencil className="w-3.5 h-3.5" /> Edit
+                              </button>
+                              <button onClick={() => handleDeleteMedicine(p)} className="h-8 w-8 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition" title="Delete" aria-label={`Delete ${p.name}`}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {paginatedAdminProducts.map((p) => (
+                    <div key={p.id} className={`p-4 ${editingId === p.id ? 'bg-teal-50/60' : ''}`}>
+                      <div className="flex gap-3">
+                        <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+                          {p.imageUrl ? <img src={p.imageUrl} alt="" loading="lazy" className="w-full h-full object-contain" /> : <Pill className="w-5 h-5 text-slate-300" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-900 text-sm leading-snug">{p.name}</p>
+                          <p className="text-xs text-slate-500 truncate">{p.company} · {p.salt}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{p.packing} · Exp {p.expiry}</p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-gray-900 text-sm truncate">
-                          {p.name} <span className="text-xs font-normal text-gray-500">({p.company})</span>
-                        </p>
-                        <p className="text-gray-500 truncate">{p.salt} • Exp: {p.expiry} • {p.packing}</p>
-                        <p className="mt-0.5 font-semibold text-[#2874f0]">
-                          PTR: ₹{p.ptr} | MRP: ₹{p.mrp} | Stock: {p.stock}
-                        </p>
+                      <div className="flex items-center justify-between mt-3">
+                        <div className="flex items-baseline gap-2 tabular-nums">
+                          <span className="font-extrabold text-slate-900">₹{p.ptr}</span>
+                          <span className="text-xs text-slate-400 line-through">₹{p.mrp}</span>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                            p.stock <= 0 ? 'bg-red-50 text-red-600' : p.stock <= 10 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                          }`}>
+                            {p.stock <= 0 ? 'Out' : `${p.stock} in stock`}
+                          </span>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => startEditMedicine(p)} className="h-9 px-3 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1.5">
+                            <Pencil className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button onClick={() => handleDeleteMedicine(p)} className="h-9 w-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center" aria-label={`Delete ${p.name}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => startEditMedicine(p)}
-                        className="bg-blue-50 text-[#2874f0] hover:bg-blue-100 px-2.5 py-1.5 rounded flex items-center gap-1 font-bold"
-                      >
-                        <Pencil className="w-3.5 h-3.5" /> Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteMedicine(p)}
-                        className="bg-red-50 text-red-600 hover:bg-red-100 p-1.5 rounded"
-                        title="Delete Medicine"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
 
-            {totalAdminPages > 1 && (
-              <div className="flex items-center justify-between pt-3 border-t text-xs font-bold">
-                <button disabled={adminPage === 1} onClick={() => setAdminPage((p) => Math.max(1, p - 1))} className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40">
-                  <ChevronLeft className="w-4 h-4" /> Prev
-                </button>
-                <span>Page {adminPage} of {totalAdminPages}</span>
-                <button disabled={adminPage === totalAdminPages} onClick={() => setAdminPage((p) => Math.min(totalAdminPages, p + 1))} className="flex items-center gap-1 px-3 py-1.5 border rounded bg-gray-50 disabled:opacity-40">
-                  Next <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+            <Pager page={adminPage} total={totalAdminPages} onChange={setAdminPage} />
           </div>
         </div>
       )}
 
-      {/* ==================== TAB 2: PROFESSIONAL ORDER MANAGEMENT ==================== */}
+      {/* ==================== ORDERS ==================== */}
       {activeTab === 'orders' && (
         <div className="space-y-4">
-          {/* Status Filter Strip + Search */}
-          <div className="bg-white p-3.5 rounded-md shadow-sm border flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
               {(['All', 'Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled'] as const).map((st) => {
                 const count = st === 'All' ? orders.length : orders.filter((o) => o.status === st).length;
+                const active = orderStatusFilter === st;
                 return (
                   <button
                     key={st}
                     onClick={() => setOrderStatusFilter(st)}
-                    className={`px-3 py-1.5 rounded-sm text-xs font-bold transition ${
-                      orderStatusFilter === st
-                        ? 'bg-gray-900 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    className={`px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition ${
+                      active ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    {st} ({count})
+                    {st} <span className={active ? 'text-slate-300' : 'text-slate-400'}>{count}</span>
                   </button>
                 );
               })}
             </div>
-
-            <div className="relative w-full sm:w-72">
-              <input
-                type="text"
-                placeholder="Search Order ID, Clinic, Phone, UTR..."
-                className="w-full border border-gray-300 rounded-sm py-1.5 px-3 pr-8 text-xs focus:outline-none focus:border-[#2874f0]"
-                value={orderSearch}
-                onChange={(e) => setOrderSearch(e.target.value)}
-              />
-              <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2" />
-            </div>
+            {searchBox(orderSearch, setOrderSearch, 'Order ID, clinic, phone, UTR…')}
           </div>
 
-          {/* Orders List */}
           {filteredOrders.length === 0 ? (
-            <div className="bg-white p-12 rounded-md text-center text-gray-500 border text-sm">
-              Is filter me koi order nahi mila.
+            <div className="bg-white p-14 rounded-2xl text-center border border-slate-200">
+              <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                <PackageCheck className="w-7 h-7 text-slate-400" />
+              </div>
+              <p className="text-sm font-semibold text-slate-700">Is filter me koi order nahi mila.</p>
             </div>
           ) : (
-            filteredOrders.map((o) => (
-              <div key={o.id} className="bg-white rounded-md shadow-sm border border-gray-200 overflow-hidden">
-                {/* Order Top Header */}
-                <div className="bg-gray-50 px-4 py-3 border-b flex flex-wrap justify-between items-center gap-3">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="font-extrabold text-sm text-gray-900">
-                      #{o.id.slice(0, 8).toUpperCase()}
-                    </span>
-                    <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${getStatusStyle(o.status)}`}>
-                      {o.status}
-                    </span>
-                    <span className="text-xs text-gray-500 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5" />
-                      {new Date(o.createdAt).toLocaleString('en-IN')}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
+            <div className="space-y-3">
+              {filteredOrders.map((o) => {
+                const open = expandedOrderId === o.id;
+                const stepIdx = STEPS.indexOf(o.status);
+                return (
+                  <div key={o.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition ${open ? 'border-teal-300' : 'border-slate-200'}`}>
+                    {/* Summary row */}
                     <button
-                      onClick={() => setInvoiceOrder(o)}
-                      className="bg-[#2874f0] hover:bg-blue-700 text-white px-3 py-1.5 rounded-sm text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                      onClick={() => setExpandedOrderId(open ? null : o.id)}
+                      aria-expanded={open}
+                      className="w-full text-left px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-5 hover:bg-slate-50/70 transition"
                     >
-                      <Printer className="w-3.5 h-3.5" /> Generate GST Bill
-                    </button>
-                  </div>
-                </div>
-
-                {/* Order Body: Customer Details & Payment Info */}
-                <div className="p-4 grid md:grid-cols-3 gap-4 border-b text-xs">
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase">Customer / Clinic Details</p>
-                    <p className="font-extrabold text-sm text-gray-900">
-                      {o.clinicName} <span className="font-normal text-gray-600">({o.doctorName})</span>
-                    </p>
-                    <p className="text-gray-700 font-medium flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-[#2874f0]" /> {o.phone || 'No Phone'}
-                      <span className="bg-blue-50 text-[#2874f0] px-1.5 py-0.5 rounded font-bold text-[10px]">
-                        RMP: {o.rmpNo}
-                      </span>
-                    </p>
-                    <p className="text-gray-600 flex items-start gap-1.5 pt-0.5">
-                      <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                      <span>{o.address}</span>
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5 bg-gray-50 p-3 rounded border border-gray-100">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase flex items-center gap-1">
-                      <CreditCard className="w-3.5 h-3.5 text-[#2874f0]" /> Payment Information
-                    </p>
-                    <p className="font-bold text-gray-800">
-                      Method: <span className="text-[#2874f0]">{formatPaymentLabel(o.paymentMode)}</span>
-                    </p>
-                    {o.utrNumber && o.utrNumber !== 'COD' && (
-                      <p className="text-gray-700">
-                        UTR / Ref No: <span className="font-mono font-bold bg-white px-1.5 py-0.5 border rounded">{o.utrNumber}</span>
-                      </p>
-                    )}
-                    <div className="flex items-center justify-between pt-1">
-                      <span className={`px-2 py-0.5 rounded font-bold ${
-                        o.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {o.paymentStatus === 'Paid' ? '✓ PAID' : '⏳ PAYMENT PENDING'}
-                      </span>
-                      <button
-                        disabled={updatingOrderId === o.id}
-                        onClick={() => handleTogglePayment(o)}
-                        className="text-[11px] font-bold text-[#2874f0] hover:underline"
-                      >
-                        Mark as {o.paymentStatus === 'Paid' ? 'Pending' : 'Paid'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 bg-blue-50/40 p-3 rounded border border-blue-100 text-right flex flex-col justify-center">
-                    <p className="text-gray-500">Subtotal (PTR): <b>₹{o.subtotal?.toFixed(2)}</b></p>
-                    <p className="text-gray-500">GST Tax: <b>₹{o.gstTotal?.toFixed(2)}</b></p>
-                    <p className="text-lg font-extrabold text-gray-900 border-t border-blue-200 pt-1 mt-1">
-                      Total: ₹{o.grandTotal}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Ordered Items Table */}
-                <div className="px-4 py-3 bg-white border-b">
-                  <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">
-                    Ordered Medicines ({o.items.length} Items)
-                  </p>
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
-                    {o.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded border">
-                        <div className="min-w-0 pr-2">
-                          <p className="font-bold text-gray-800 truncate">{item.name}</p>
-                          <p className="text-[10px] text-gray-500">{item.packing || '1 Strip'} • PTR ₹{item.ptr}</p>
+                      <div className="min-w-0 flex-1 grid sm:grid-cols-[150px_1fr] gap-x-6 gap-y-1.5 items-center">
+                        <div className="flex sm:flex-col sm:items-start items-center gap-2">
+                          <span className="font-mono font-bold text-sm text-slate-900">#{o.id.slice(0, 8).toUpperCase()}</span>
+                          <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${getStatusStyle(o.status)}`}>{o.status}</span>
                         </div>
-                        <span className="font-extrabold text-[#2874f0] shrink-0">
-                          × {item.qty} = ₹{(item.ptr * item.qty).toFixed(0)}
-                        </span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">
+                            {o.clinicName} <span className="font-medium text-slate-500">· {o.doctorName}</span>
+                          </p>
+                          <p className="text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDate(o.createdAt)}</span>
+                            <span>{o.items.length} item{o.items.length > 1 ? 's' : ''}</span>
+                            <span className={`font-bold ${o.paymentStatus === 'Paid' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                              {o.paymentStatus === 'Paid' ? 'Paid' : 'Payment pending'}
+                            </span>
+                          </p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-lg font-extrabold text-slate-900 tabular-nums">{inr(o.grandTotal)}</p>
+                        <p className="text-[11px] text-slate-400 hidden sm:block">{formatPaymentLabel(o.paymentMode)}</p>
+                      </div>
+                      <ChevronDown className={`w-5 h-5 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+                    </button>
 
-                {/* Bottom Action Bar: Update Order Status (Opens Confirmation Popup) */}
-                <div className="px-4 py-3 bg-gray-50 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
-                    <Truck className="w-4 h-4 text-[#2874f0]" /> Change Order Status:
-                  </span>
+                    {open && (
+                      <div className="border-t border-slate-100">
+                        {/* Progress */}
+                        <div className="px-4 sm:px-5 pt-5">
+                          {o.status === 'Cancelled' ? (
+                            <div className="flex items-center gap-2 text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                              <XCircle className="w-4 h-4 shrink-0" />
+                              Order cancelled{(o as any).cancelReason ? ` — ${(o as any).cancelReason}` : ''}
+                            </div>
+                          ) : (
+                            <ol className="flex items-center">
+                              {STEPS.map((s, i) => {
+                                const done = i <= stepIdx;
+                                return (
+                                  <li key={s} className="flex items-center flex-1 last:flex-none">
+                                    <div className="flex flex-col items-center gap-1.5">
+                                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${done ? 'bg-brand text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                        {done ? <CheckCircle2 className="w-4 h-4" /> : i + 1}
+                                      </span>
+                                      <span className={`text-[11px] font-semibold ${done ? 'text-slate-800' : 'text-slate-400'}`}>{s}</span>
+                                    </div>
+                                    {i < STEPS.length - 1 && <span className={`flex-1 h-0.5 mx-2 mb-5 rounded ${i < stepIdx ? 'bg-brand' : 'bg-slate-200'}`} />}
+                                  </li>
+                                );
+                              })}
+                            </ol>
+                          )}
+                        </div>
 
-                  <div className="flex flex-wrap gap-1.5">
-                    {(['Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled'] as OrderStatus[]).map((st) => {
-                      const isCurrent = o.status === st;
-                      return (
-                        <button
-                          key={st}
-                          disabled={updatingOrderId === o.id || isCurrent}
-                          onClick={() => openStatusConfirmation(o, st)}
-                          className={`px-3 py-1.5 rounded-sm text-xs font-bold flex items-center gap-1 transition ${
-                            isCurrent
-                              ? st === 'Cancelled'
-                                ? 'bg-red-600 text-white shadow-sm cursor-default'
-                                : 'bg-emerald-600 text-white shadow-sm cursor-default'
-                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-blue-50 hover:border-[#2874f0]'
-                          }`}
-                        >
-                          {isCurrent && <CheckCircle2 className="w-3.5 h-3.5" />}
-                          {st === 'Cancelled' && !isCurrent && <XCircle className="w-3.5 h-3.5 text-red-500" />}
-                          {st}
-                        </button>
-                      );
-                    })}
+                        {/* Details */}
+                        <div className="p-4 sm:p-5 grid md:grid-cols-3 gap-4 text-sm">
+                          <div className="space-y-1.5">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Customer</p>
+                            <p className="font-bold text-slate-900">{o.clinicName}</p>
+                            <p className="text-slate-600">{o.doctorName}</p>
+                            <p className="text-slate-600 flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-slate-400" />{o.phone || 'No phone'}
+                              <span className="bg-teal-50 text-brand px-1.5 py-0.5 rounded font-bold text-[10px]">RMP {o.rmpNo}</span>
+                            </p>
+                            <p className="text-slate-600 flex items-start gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" /><span>{o.address}</span></p>
+                          </div>
+
+                          <div className="space-y-2 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" />Payment</p>
+                            <p className="font-semibold text-slate-800">{formatPaymentLabel(o.paymentMode)}</p>
+                            {o.utrNumber && o.utrNumber !== 'COD' && (
+                              <p className="text-xs text-slate-600">UTR <span className="font-mono font-bold bg-white px-1.5 py-0.5 border rounded">{o.utrNumber}</span></p>
+                            )}
+                            <div className="flex items-center justify-between gap-2 pt-1">
+                              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${o.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {o.paymentStatus === 'Paid' ? 'Paid' : 'Pending'}
+                              </span>
+                              <button disabled={updatingOrderId === o.id} onClick={() => handleTogglePayment(o)} className="text-xs font-bold text-brand hover:underline disabled:opacity-50">
+                                Mark as {o.paymentStatus === 'Paid' ? 'pending' : 'paid'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-1.5 text-sm">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount</p>
+                            <div className="flex justify-between text-slate-600"><span>Subtotal (PTR)</span><span className="tabular-nums">₹{o.subtotal?.toFixed(2)}</span></div>
+                            <div className="flex justify-between text-slate-600"><span>GST</span><span className="tabular-nums">₹{o.gstTotal?.toFixed(2)}</span></div>
+                            <div className="flex justify-between font-extrabold text-slate-900 text-base border-t border-slate-200 pt-2 mt-1"><span>Total</span><span className="tabular-nums">₹{o.grandTotal}</span></div>
+                          </div>
+                        </div>
+
+                        {/* Items */}
+                        <div className="px-4 sm:px-5 pb-5">
+                          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Items ({o.items.length})</p>
+                          <div className="rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+                                <tr>
+                                  <th className="text-left font-bold px-4 py-2.5">Medicine</th>
+                                  <th className="text-right font-bold px-3 py-2.5">PTR</th>
+                                  <th className="text-right font-bold px-3 py-2.5">Qty</th>
+                                  <th className="text-right font-bold px-4 py-2.5">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {o.items.map((item, idx) => (
+                                  <tr key={idx}>
+                                    <td className="px-4 py-2.5">
+                                      <p className="font-semibold text-slate-800">{item.name}</p>
+                                      <p className="text-xs text-slate-400">{item.packing || '1 Strip'}</p>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">₹{item.ptr}</td>
+                                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold">{item.qty}</td>
+                                    <td className="px-4 py-2.5 text-right tabular-nums font-bold text-slate-900">₹{(item.ptr * item.qty).toFixed(0)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="px-4 sm:px-5 py-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5 mr-1"><Truck className="w-4 h-4" />Update status</span>
+                            {(['Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled'] as OrderStatus[]).map((st) => {
+                              const isCurrent = o.status === st;
+                              return (
+                                <button
+                                  key={st}
+                                  disabled={updatingOrderId === o.id || isCurrent}
+                                  onClick={() => openStatusConfirmation(o, st)}
+                                  className={`h-9 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                                    isCurrent
+                                      ? st === 'Cancelled' ? 'bg-red-600 text-white cursor-default' : 'bg-brand text-white cursor-default'
+                                      : st === 'Cancelled'
+                                      ? 'bg-white border border-red-200 text-red-600 hover:bg-red-50'
+                                      : 'bg-white border border-slate-300 text-slate-700 hover:border-brand hover:text-brand'
+                                  }`}
+                                >
+                                  {isCurrent && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                  {st}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <button onClick={() => setInvoiceOrder(o)} className="h-9 px-4 bg-slate-900 hover:bg-slate-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition">
+                            <Printer className="w-3.5 h-3.5" /> GST bill
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-            ))
+                );
+              })}
+            </div>
           )}
         </div>
       )}
 
-      {/* ==================== TAB 3: RMP CLINICS ==================== */}
+      {/* ==================== DOCTORS ==================== */}
       {activeTab === 'doctors' && (
-        <div className="bg-white p-4 rounded-md shadow-sm border space-y-2">
-          {doctors.map((d) => (
-            <div key={d.uid} className="flex flex-wrap justify-between items-center border p-3.5 rounded-sm text-xs gap-3">
-              <div>
-                <p className="font-bold text-sm text-gray-900">{d.clinicName || 'Admin'} — {d.doctorName}</p>
-                <p className="text-gray-600 mt-0.5">RMP: <b className="text-[#2874f0]">{d.rmpNo || 'N/A'}</b> • 📞 {d.phone} • ✉️ {d.email}</p>
-                <p className="text-gray-400 mt-0.5">📍 {d.address}</p>
-              </div>
-              <button
-                onClick={() => toggleVerifyDoctor(d.uid, d.verified)}
-                className={`px-3.5 py-1.5 rounded-sm font-bold flex items-center gap-1.5 ${
-                  d.verified ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-amber-100 text-amber-800 border border-amber-300'
-                }`}
-              >
-                {d.verified ? <><CheckCircle className="w-4 h-4" /> Verified RMP</> : <><ShieldAlert className="w-4 h-4" /> Pending Approval</>}
-              </button>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-slate-100">
+            <div className="flex gap-1.5">
+              {(['All', 'Pending', 'Verified'] as const).map((f) => {
+                const count = f === 'All' ? doctors.length : doctors.filter((d) => (f === 'Pending' ? !d.verified : d.verified)).length;
+                const active = doctorFilter === f;
+                return (
+                  <button key={f} onClick={() => setDoctorFilter(f)} className={`px-3.5 py-2 rounded-full text-xs font-bold border transition ${active ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                    {f} <span className={active ? 'text-slate-300' : 'text-slate-400'}>{count}</span>
+                  </button>
+                );
+              })}
             </div>
-          ))}
+            {searchBox(doctorSearch, setDoctorSearch, 'Clinic, doctor, RMP no, phone…')}
+          </div>
+
+          {filteredDoctors.length === 0 ? (
+            <p className="text-center py-14 text-sm text-slate-500">Koi clinic nahi mili.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {filteredDoctors.map((d) => (
+                <li key={d.uid} className="px-4 sm:px-5 py-4 flex flex-wrap items-center justify-between gap-3 hover:bg-slate-50/60">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-10 h-10 rounded-full bg-teal-50 text-brand font-extrabold flex items-center justify-center shrink-0">
+                      {(d.clinicName || d.doctorName || d.email || '?').charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 truncate">
+                        {d.clinicName || 'Admin'} <span className="font-medium text-slate-500">· {d.doctorName}</span>
+                      </p>
+                      <p className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                        <span>RMP <b className="text-slate-700">{d.rmpNo || 'N/A'}</b></span>
+                        <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{d.phone}</span>
+                        <span className="truncate">{d.email}</span>
+                      </p>
+                      {d.address && <p className="text-xs text-slate-400 flex items-start gap-1 mt-0.5"><MapPin className="w-3 h-3 mt-0.5 shrink-0" />{d.address}</p>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleVerifyDoctor(d.uid, d.verified)}
+                    className={`h-9 px-4 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                      d.verified
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                        : 'bg-brand text-white hover:bg-brand-dark'
+                    }`}
+                    title={d.verified ? 'Click to revoke verification' : 'Click to approve'}
+                  >
+                    {d.verified ? <><CheckCircle className="w-4 h-4" /> Verified</> : <><ShieldAlert className="w-4 h-4" /> Approve</>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
-      {/* ==================== STATUS CONFIRMATION MODAL POPUP ==================== */}
+      {/* ==================== STATUS CONFIRM MODAL ==================== */}
       {statusModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white max-w-md w-full rounded-md shadow-2xl border overflow-hidden">
-            <div className={`px-5 py-3.5 flex items-center justify-between text-white ${
-              statusModal.nextStatus === 'Cancelled' ? 'bg-red-600' : 'bg-[#2874f0]'
-            }`}>
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> Confirm Order Status Update
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setStatusModal(null)}>
+          <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${statusModal.nextStatus === 'Cancelled' ? 'bg-red-50 text-red-600' : 'bg-teal-50 text-brand'}`}>
+                  <AlertTriangle className="w-4 h-4" />
+                </span>
+                Confirm status change
               </h3>
-              <button onClick={() => setStatusModal(null)} className="hover:opacity-80">
-                <X className="w-4 h-4" />
-              </button>
+              <button onClick={() => setStatusModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400" aria-label="Close"><X className="w-4 h-4" /></button>
             </div>
 
-            <div className="p-5 space-y-4 text-xs">
-              <div className="bg-gray-50 p-3 rounded border space-y-1">
-                <p className="text-gray-500">Order ID: <b className="text-gray-900">#{statusModal.order.id.slice(0, 8).toUpperCase()}</b></p>
-                <p className="text-gray-500">Clinic: <b className="text-gray-900">{statusModal.order.clinicName} ({statusModal.order.doctorName})</b></p>
-                <p className="text-gray-500">Bill Amount: <b className="text-emerald-700">₹{statusModal.order.grandTotal}</b></p>
+            <div className="p-5 space-y-4 text-sm">
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 space-y-1 text-xs text-slate-500">
+                <p>Order <b className="text-slate-900 font-mono">#{statusModal.order.id.slice(0, 8).toUpperCase()}</b></p>
+                <p>Clinic <b className="text-slate-900">{statusModal.order.clinicName} ({statusModal.order.doctorName})</b></p>
+                <p>Amount <b className="text-slate-900">{inr(statusModal.order.grandTotal)}</b></p>
               </div>
 
-              <div className="flex items-center justify-center gap-3 py-2">
-                <span className={`px-3 py-1 rounded-full font-bold border ${getStatusStyle(statusModal.order.status)}`}>
-                  {statusModal.order.status}
-                </span>
-                <ArrowRight className="w-4 h-4 text-gray-400" />
-                <span className={`px-3 py-1 rounded-full font-bold border ${getStatusStyle(statusModal.nextStatus)}`}>
-                  {statusModal.nextStatus}
-                </span>
+              <div className="flex items-center justify-center gap-3">
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusStyle(statusModal.order.status)}`}>{statusModal.order.status}</span>
+                <ArrowRight className="w-4 h-4 text-slate-400" />
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusStyle(statusModal.nextStatus)}`}>{statusModal.nextStatus}</span>
               </div>
 
-              <p className="text-gray-600 text-center">
-                Kya aap sure hain ki is order ko <b>"{statusModal.nextStatus}"</b> mark karna hai? Yeh status customer ko turant dikhne lagega.
-              </p>
+              <p className="text-slate-500 text-center text-xs">Yeh status customer ko turant dikhne lagega.</p>
 
               {statusModal.nextStatus === 'Cancelled' && (
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">Cancellation Reason (Optional):</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Stock unavailable / Doctor requested cancel"
-                    className="w-full border border-gray-300 p-2 rounded-sm focus:outline-none focus:border-red-500"
-                    value={cancelReason}
-                    onChange={(e) => setCancelReason(e.target.value)}
-                  />
+                  <label className={labelCls}>Cancellation reason (optional)</label>
+                  <input type="text" placeholder="e.g. Stock unavailable / Doctor requested cancel" className={inputCls} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
                 </div>
               )}
+            </div>
 
-              <div className="flex justify-end gap-2.5 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setStatusModal(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-sm font-bold text-gray-700 hover:bg-gray-100"
-                >
-                  No, Go Back
-                </button>
-                <button
-                  type="button"
-                  disabled={updatingOrderId === statusModal.order.id}
-                  onClick={confirmOrderStatusUpdate}
-                  className={`px-5 py-2 rounded-sm font-bold text-white shadow-sm ${
-                    statusModal.nextStatus === 'Cancelled'
-                      ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}
-                >
-                  {updatingOrderId === statusModal.order.id ? 'Updating...' : `Yes, Mark ${statusModal.nextStatus}`}
-                </button>
-              </div>
+            <div className="flex justify-end gap-2.5 px-5 py-4 bg-slate-50 border-t border-slate-100">
+              <button type="button" onClick={() => setStatusModal(null)} className="h-10 px-4 border border-slate-300 bg-white rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-100">
+                Go back
+              </button>
+              <button
+                type="button"
+                disabled={updatingOrderId === statusModal.order.id}
+                onClick={confirmOrderStatusUpdate}
+                className={`h-10 px-5 rounded-lg text-sm font-bold text-white shadow-sm disabled:opacity-60 ${statusModal.nextStatus === 'Cancelled' ? 'bg-red-600 hover:bg-red-700' : 'bg-brand hover:bg-brand-dark'}`}
+              >
+                {updatingOrderId === statusModal.order.id ? 'Updating…' : `Mark ${statusModal.nextStatus}`}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ==================== ADMIN GST BILL / TAX INVOICE MODAL ==================== */}
+      {/* ==================== GST INVOICE MODAL ==================== */}
       {invoiceOrder && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white max-w-2xl w-full rounded-md shadow-xl p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3 mb-4">
-              <h3 className="font-bold text-lg text-gray-900">Wholesale B2B Tax Invoice</h3>
-              <button onClick={() => setInvoiceOrder(null)} className="p-1 hover:bg-gray-100 rounded">
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setInvoiceOrder(null)}>
+          <div className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <h3 className="font-bold text-lg text-slate-900">Tax invoice</h3>
+              <button onClick={() => setInvoiceOrder(null)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400" aria-label="Close"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="space-y-4 text-xs text-gray-800">
-              <div className="flex justify-between border-b pb-3">
+            <div id="printable-order-sheet" className="p-6 space-y-5 text-xs text-slate-800 bg-white">
+              <div className="flex justify-between gap-4 border-b border-slate-200 pb-4">
                 <div>
-                  <h4 className="font-extrabold text-base text-[#2874f0]">MedKart B2B Pharma Distributors</h4>
-                  <p>Wholesale Drug License: 20B / 21B Verified</p>
-                  <p>Status: <b>{invoiceOrder.status}</b> | Payment: <b>{formatPaymentLabel(invoiceOrder.paymentMode)} ({invoiceOrder.paymentStatus})</b></p>
+                  <h4 className="font-extrabold text-lg text-brand">MedKart B2B Pharma Distributors</h4>
+                  <p className="text-slate-500 mt-0.5">Wholesale Drug License: 20B / 21B Verified</p>
+                  <p className="mt-1">Status: <b>{invoiceOrder.status}</b> · Payment: <b>{formatPaymentLabel(invoiceOrder.paymentMode)} ({invoiceOrder.paymentStatus})</b></p>
                 </div>
-                <div className="text-right">
-                  <p className="font-bold">Invoice: INV-{invoiceOrder.id.slice(0, 6).toUpperCase()}</p>
-                  <p>Date: {new Date(invoiceOrder.createdAt).toLocaleDateString('en-IN')}</p>
-                  {invoiceOrder.utrNumber && <p>UTR: {invoiceOrder.utrNumber}</p>}
+                <div className="text-right shrink-0">
+                  <p className="font-bold text-sm">INV-{invoiceOrder.id.slice(0, 6).toUpperCase()}</p>
+                  <p className="text-slate-500">{new Date(invoiceOrder.createdAt).toLocaleDateString('en-IN')}</p>
+                  {invoiceOrder.utrNumber && <p className="text-slate-500">UTR: {invoiceOrder.utrNumber}</p>}
                 </div>
               </div>
 
-              <div className="bg-gray-50 p-3 rounded border">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bill to</p>
                 <p className="font-bold text-sm">{invoiceOrder.clinicName} ({invoiceOrder.doctorName})</p>
-                <p>RMP Reg No: <b>{invoiceOrder.rmpNo}</b> | Phone: <b>{invoiceOrder.phone}</b></p>
-                <p>Delivery Address: {invoiceOrder.address}</p>
+                <p>RMP Reg No: <b>{invoiceOrder.rmpNo}</b> · Phone: <b>{invoiceOrder.phone}</b></p>
+                <p className="text-slate-600">{invoiceOrder.address}</p>
               </div>
 
-              <table className="w-full border-collapse border border-gray-300 text-left">
-                <thead className="bg-gray-100">
+              <table className="w-full text-left">
+                <thead className="border-y border-slate-200 text-[11px] uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="border p-2">#</th>
-                    <th className="border p-2">Medicine Name</th>
-                    <th className="border p-2">Pack</th>
-                    <th className="border p-2">Qty</th>
-                    <th className="border p-2">PTR (₹)</th>
-                    <th className="border p-2 text-right">Total (₹)</th>
+                    <th className="py-2 pr-2">#</th>
+                    <th className="py-2">Medicine</th>
+                    <th className="py-2">Pack</th>
+                    <th className="py-2 text-right">Qty</th>
+                    <th className="py-2 text-right">PTR</th>
+                    <th className="py-2 text-right">Total</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100">
                   {invoiceOrder.items.map((item, idx) => (
                     <tr key={idx}>
-                      <td className="border p-2">{idx + 1}</td>
-                      <td className="border p-2 font-semibold">{item.name}</td>
-                      <td className="border p-2">{item.packing || '1 Strip'}</td>
-                      <td className="border p-2">{item.qty}</td>
-                      <td className="border p-2">₹{item.ptr.toFixed(2)}</td>
-                      <td className="border p-2 text-right">₹{(item.ptr * item.qty).toFixed(2)}</td>
+                      <td className="py-2 pr-2 text-slate-400">{idx + 1}</td>
+                      <td className="py-2 font-semibold">{item.name}</td>
+                      <td className="py-2 text-slate-500">{item.packing || '1 Strip'}</td>
+                      <td className="py-2 text-right">{item.qty}</td>
+                      <td className="py-2 text-right">₹{item.ptr.toFixed(2)}</td>
+                      <td className="py-2 text-right font-semibold">₹{(item.ptr * item.qty).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
               <div className="flex justify-end">
-                <div className="w-64 space-y-1 text-right bg-gray-50 p-3 rounded border">
-                  <p>Subtotal (PTR): <b>₹{invoiceOrder.subtotal.toFixed(2)}</b></p>
-                  <p>GST (12%): <b>₹{invoiceOrder.gstTotal.toFixed(2)}</b></p>
-                  <p className="text-base font-extrabold text-[#2874f0] border-t pt-1">Grand Total: ₹{invoiceOrder.grandTotal}</p>
+                <div className="w-64 space-y-1.5 text-sm">
+                  <div className="flex justify-between text-slate-600"><span>Subtotal (PTR)</span><b>₹{invoiceOrder.subtotal.toFixed(2)}</b></div>
+                  <div className="flex justify-between text-slate-600"><span>GST</span><b>₹{invoiceOrder.gstTotal.toFixed(2)}</b></div>
+                  <div className="flex justify-between text-base font-extrabold text-brand border-t border-slate-200 pt-2"><span>Grand total</span><span>₹{invoiceOrder.grandTotal}</span></div>
                 </div>
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3 border-t pt-4">
-              <button onClick={() => setInvoiceOrder(null)} className="px-4 py-2 border rounded-sm text-xs font-bold">
-                Close
-              </button>
-              <button onClick={() => window.print()} className="bg-[#2874f0] text-white px-5 py-2 rounded-sm text-xs font-bold flex items-center gap-1.5 hover:bg-blue-700">
-                <Printer className="w-4 h-4" /> Print / Save PDF Bill
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+              <button onClick={() => setInvoiceOrder(null)} className="h-10 px-4 border border-slate-300 bg-white rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-100">Close</button>
+              <button onClick={() => window.print()} className="h-10 bg-brand text-white px-5 rounded-lg text-sm font-bold flex items-center gap-1.5 hover:bg-brand-dark">
+                <Printer className="w-4 h-4" /> Print / Save PDF
               </button>
             </div>
           </div>
