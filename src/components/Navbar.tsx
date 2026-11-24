@@ -11,7 +11,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 
-export type PageView = 'store' | 'cart' | 'orders' | 'admin' | 'auth';
+export type PageView = 'store' | 'cart' | 'address' | 'payment' | 'orders' | 'admin' | 'auth';
 
 interface NavbarProps {
   search: string;
@@ -127,7 +127,6 @@ export default function Navbar({ activeView, setActiveView }: NavbarProps) {
             )}
           </div>
 
-          {/* Right Cart & Search Icons */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setActiveView('cart')}
