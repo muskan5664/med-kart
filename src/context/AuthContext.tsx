@@ -48,7 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => signOut(auth);
   const refreshProfile = async () => {
-    if (user) await fetchProfile(user.uid);
+    const current = auth.currentUser;
+    if (current) await fetchProfile(current.uid);
   };
 
   const isAdmin =
