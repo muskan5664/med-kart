@@ -1,6 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
-import { Filter, SlidersHorizontal, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Search,
+  CheckCircle2,
+  Pill,
+  FlaskConical,
+  Droplets,
+  Syringe,
+  BadgeCheck,
+  Truck,
+  Handshake,
+  Headphones,
+  ChevronLeft,
+  ChevronRight,
+  Layers
+} from 'lucide-react';
 import { db } from '../lib/firebase';
 import { Medicine } from '../types';
 import { INITIAL_MEDICINES } from '../data/initialMedicines';
@@ -8,32 +22,30 @@ import ProductCard from '../components/ProductCard';
 
 interface StorePageProps {
   search: string;
+  setSearch: (val: string) => void;
 }
 
 const ITEMS_PER_PAGE = 24;
 
-// Auto-detect Category from Medicine Name / Packing / Composition
 function detectCategory(name: string, salt: string, company: string): string {
   const text = `${name} ${salt} ${company}`.toUpperCase();
   if (text.includes('(VET)') || text.includes('BOLUS') || text.includes('VETERINARY')) return 'Veterinary';
-  if (text.includes('INJ') || text.includes('VIAL') || text.includes('AMP') || text.includes('INFUSION') || text.includes('500ML.')) return 'Injections';
-  if (text.includes('SYP') || text.includes('SYRUP') || text.includes('SUSP') || text.includes('DROP') || text.includes('LIQ') || text.includes('SOLN')) return 'Syrups & Drops';
-  if (text.includes('CREAM') || text.includes('OINT') || text.includes('GEL') || text.includes('LOTION') || text.includes('SOAP') || text.includes('SHAMPOO')) return 'Ointments & Derma';
-  if (text.includes('SYRINGE') || text.includes('BANDAGE') || text.includes('TAPE') || text.includes('SURGICAL') || text.includes('PAD') || text.includes('DIAPER') || text.includes('IV SET')) return 'Surgical & Care';
-  return 'Tablets & Caps';
+  if (text.includes('INJ') || text.includes('VIAL') || text.includes('AMP') || text.includes('INFUSION') || text.includes('500ML.')) return 'Injection';
+  if (text.includes('DROP')) return 'Drops';
+  if (text.includes('SYP') || text.includes('SYRUP') || text.includes('SUSP') || text.includes('LIQ') || text.includes('SOLN')) return 'Syrup';
+  if (text.includes('CAP')) return 'Capsule';
+  return 'Tablet';
 }
 
-export default function StorePage({ search }: StorePageProps) {
+export default function StorePage({ search, setSearch }: StorePageProps) {
   const [products, setProducts] = useState<Medicine[]>([]);
   const [category, setCategory] = useState<string>('All');
-  const [sortBy, setSortBy] = useState<'default' | 'margin' | 'priceLow'>('default');
   const [loading, setLoading] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
   useEffect(() => {
     const fetchAllMedicines = async () => {
       try {
-        // 1. Load 8000+ medicines from static public/medicines.json
         let staticList: Medicine[] = [];
         try {
           const res = await fetch('/medicines.json');
@@ -41,7 +53,6 @@ export default function StorePage({ search }: StorePageProps) {
             const rawData = await res.json();
             if (Array.isArray(rawData)) {
               const seenNames = new Map<string, Medicine>();
-
               rawData.forEach((row: any, index: number) => {
                 if (Array.isArray(row)) {
                   const rawName = String(row[0] || '').trim();
@@ -52,15 +63,7 @@ export default function StorePage({ search }: StorePageProps) {
                   const expiry = row[6] && row[6] !== '/' ? String(row[6]).trim() : '12/2028';
                   const closingStock = Number(row[10] ?? 50);
 
-                  // Skip company header rows, null salt rows, or non-medicine charges
-                  if (
-                    !rawName ||
-                    !salt ||
-                    rawName.includes('COD CHARGE') ||
-                    rawName.includes('CASH ETRA')
-                  ) {
-                    return;
-                  }
+                  if (!rawName || !salt || rawName.includes('COD CHARGE') || rawName.includes('CASH ETRA')) return;
 
                   const mrp = parseFloat(rawPrice) || 50;
                   const ptr = Number((mrp * 0.75).toFixed(2));
@@ -81,15 +84,9 @@ export default function StorePage({ search }: StorePageProps) {
                       expiry,
                       packing
                     });
-                  } else if (mrp > 0) {
-                    const existing = seenNames.get(key)!;
-                    existing.mrp = mrp;
-                    existing.ptr = ptr;
-                    if (expiry && expiry !== '12/2028') existing.expiry = expiry;
                   }
                 }
               });
-
               staticList = Array.from(seenNames.values());
             }
           }
@@ -97,14 +94,13 @@ export default function StorePage({ search }: StorePageProps) {
           console.warn('Error parsing medicines.json:', e);
         }
 
-        // 2. Load Admin-added / Edited medicines from Firestore
         const snap = await getDocs(collection(db, 'products'));
-        const firestoreList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine));
+        const rawFsList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine & { hidden?: boolean }));
+        const fsIdSet = new Set(rawFsList.map((item) => item.id));
+        const visibleFsList = rawFsList.filter((item) => !item.hidden);
 
-        // Override static items with Firestore edited versions (photos, updated PTR/MRP)
-        const fsIdSet = new Set(firestoreList.map((item) => item.id));
         const combined = [
-          ...firestoreList,
+          ...visibleFsList,
           ...staticList.filter((item) => !fsIdSet.has(item.id))
         ];
 
@@ -126,40 +122,31 @@ export default function StorePage({ search }: StorePageProps) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, category, sortBy]);
+  }, [search, category]);
 
-  const categories = [
-    'All',
-    'Tablets & Caps',
-    'Syrups & Drops',
-    'Injections',
-    'Ointments & Derma',
-    'Surgical & Care',
-    'Veterinary'
+  const categoryTabs = [
+    { id: 'All', label: 'सभी दवाइयाँ', icon: Layers },
+    { id: 'Tablet', label: 'Tablet', icon: Pill },
+    { id: 'Capsule', label: 'Capsule', icon: Pill },
+    { id: 'Syrup', label: 'Syrup', icon: FlaskConical },
+    { id: 'Drops', label: 'Drops', icon: Droplets },
+    { id: 'Injection', label: 'Injection', icon: Syringe }
   ];
 
   const filteredProducts = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return products
-      .filter((p) => {
-        const matchesCat = category === 'All' || p.category === category;
-        const matchesSearch =
-          !q ||
-          p.name.toLowerCase().includes(q) ||
-          p.salt.toLowerCase().includes(q) ||
-          p.company.toLowerCase().includes(q);
-        return matchesCat && matchesSearch;
-      })
-      .sort((a, b) => {
-        if (sortBy === 'margin') {
-          return (b.mrp - b.ptr) / b.mrp - (a.mrp - a.ptr) / a.mrp;
-        }
-        if (sortBy === 'priceLow') {
-          return a.ptr - b.ptr;
-        }
-        return 0;
-      });
-  }, [products, category, search, sortBy]);
+    return products.filter((p) => {
+      const matchesCat =
+        category === 'All' ||
+        p.category.toLowerCase().includes(category.toLowerCase());
+      const matchesSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.salt.toLowerCase().includes(q) ||
+        p.company.toLowerCase().includes(q);
+      return matchesCat && matchesSearch;
+    });
+  }, [products, category, search]);
 
   const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
   const paginatedProducts = filteredProducts.slice(
@@ -168,96 +155,177 @@ export default function StorePage({ search }: StorePageProps) {
   );
 
   return (
-    <div className="space-y-4">
-      {/* Top Wholesale Banner */}
-      <div className="bg-gradient-to-r from-blue-900 via-[#2874f0] to-blue-600 text-white p-4 rounded-md shadow-sm flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-1.5 text-yellow-300 text-xs font-bold uppercase tracking-wider">
-            <Sparkles className="w-4 h-4" /> {products.length.toLocaleString()}+ Medicines & Medical Supplies Ready
+    <div className="space-y-3.5 pb-16">
+      {/* 1. HERO PROMO BANNER (Matching Screenshot Design) */}
+      <div className="bg-gradient-to-r from-[#d8ecff] via-[#eef6ff] to-[#d8ecff] rounded-2xl p-3.5 sm:p-5 border border-blue-200 shadow-sm relative overflow-hidden">
+        <div className="grid grid-cols-12 items-center gap-2">
+          {/* Left Doctor Visual */}
+          <div className="col-span-3 sm:col-span-2 flex justify-center">
+            <img
+              src="https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=300&q=80"
+              alt="RMP Doctor"
+              className="w-20 h-24 sm:w-28 sm:h-32 object-cover rounded-xl border-2 border-white shadow"
+            />
           </div>
-          <h2 className="text-lg md:text-xl font-bold mt-0.5">
-            Direct Wholesale PTR Pricing for RMP Clinics
-          </h2>
-        </div>
-        <div className="bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded text-xs font-medium border border-white/20">
-          Instant Salt Search • GST Tax Invoice • COD Available
+
+          {/* Center Hindi Promo Headline */}
+          <div className="col-span-6 sm:col-span-7 text-center px-1">
+            <span className="inline-block bg-[#0f489c] text-white text-[11px] sm:text-xs font-extrabold px-3 py-0.5 rounded-full shadow-sm">
+              RMP <span className="text-yellow-300">Store</span>
+            </span>
+            <h2 className="text-base sm:text-2xl font-black text-[#0f387a] leading-tight mt-1">
+              क्लिनिक के लिए
+              <span className="block text-2xl sm:text-4xl text-[#d61f26] tracking-tight">
+                दवाइयाँ
+              </span>
+            </h2>
+            <div className="mt-1.5 inline-block bg-gradient-to-r from-yellow-300 via-yellow-200 to-yellow-300 text-[#0f387a] text-[10px] sm:text-xs font-extrabold px-3 py-1 rounded-full border border-yellow-400 shadow-sm">
+              अब थोक दाम पर दवाइयाँ मंगाना हुआ आसान !
+            </div>
+          </div>
+
+          {/* Right Checkmark Highlights */}
+          <div className="col-span-3 sm:col-span-3 space-y-1.5 text-[10px] sm:text-xs font-extrabold text-[#0f387a]">
+            <div className="flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4 text-[#19a84b] shrink-0 fill-emerald-100" />
+              <span>बेहतर थोक रेट</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4 text-[#19a84b] shrink-0 fill-emerald-100" />
+              <span>आसान ऑर्डर</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4 text-[#19a84b] shrink-0 fill-emerald-100" />
+              <span>नया स्टॉक</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Category & Sort Bar */}
-      <div className="bg-white p-3 rounded-md shadow-sm border border-gray-200/70 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-          <Filter className="w-4 h-4 text-gray-400 shrink-0 mr-1" />
-          {categories.map((cat) => (
+      {/* 2. HINDI SEARCH BAR ("दवा का नाम खोजें..." + "खोजें") */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-300 flex items-center overflow-hidden">
+        <div className="pl-3.5 text-gray-400">
+          <Search className="w-5 h-5" />
+        </div>
+        <input
+          id="main-med-search"
+          type="text"
+          placeholder="दवा का नाम खोजें... (जैसे: Dolo, Paracetamol, Azithral)"
+          className="w-full py-2.5 px-3 text-sm text-gray-800 focus:outline-none"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          type="button"
+          className="bg-[#155ed6] hover:bg-blue-800 text-white font-bold px-5 py-2.5 text-sm shrink-0 transition"
+        >
+          खोजें
+        </button>
+      </div>
+
+      {/* 3. ICON CATEGORY PILLS (सभी दवाइयाँ, Tablet, Capsule, Syrup, Drops...) */}
+      <div id="category-strip" className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+        {categoryTabs.map((tab) => {
+          const IconComponent = tab.icon;
+          const active = category === tab.id;
+          return (
             <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={`px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wide whitespace-nowrap transition ${
-                category === cat
-                  ? 'bg-[#2874f0] text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              key={tab.id}
+              onClick={() => setCategory(tab.id)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-extrabold whitespace-nowrap transition shadow-sm ${
+                active
+                  ? 'bg-[#155ed6] text-white border-[#155ed6]'
+                  : 'bg-white text-gray-800 border-gray-200 hover:bg-blue-50'
               }`}
             >
-              {cat}
+              <div className={`p-1 rounded-lg ${active ? 'bg-white/20' : 'bg-blue-50 text-[#155ed6]'}`}>
+                <IconComponent className="w-4 h-4" />
+              </div>
+              <span>{tab.label}</span>
             </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-gray-500 font-semibold hidden sm:inline">
-            {filteredProducts.length.toLocaleString()} items
-          </span>
-          <div className="flex items-center gap-1.5">
-            <SlidersHorizontal className="w-4 h-4 text-gray-500" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="border border-gray-300 rounded-sm px-2.5 py-1.5 font-semibold text-gray-700 focus:outline-none focus:border-[#2874f0]"
-            >
-              <option value="default">Relevance</option>
-              <option value="margin">Highest Profit Margin</option>
-              <option value="priceLow">PTR: Low to High</option>
-            </select>
-          </div>
-        </div>
+          );
+        })}
       </div>
 
-      {/* Catalog Grid */}
+      {/* 4. 4-COLUMN TRUST STRIP (बेस्ट रेट गारंटी, जल्दी डिलीवरी, विश्वसनीय सप्लायर, कॉल करें) */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 grid grid-cols-4 gap-1.5 text-center">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+          <BadgeCheck className="w-6 h-6 text-[#155ed6] shrink-0" />
+          <span className="text-[10px] sm:text-xs font-extrabold text-gray-800 leading-tight">
+            बेस्ट रेट गारंटी
+          </span>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5 border-l border-gray-100">
+          <Truck className="w-6 h-6 text-[#155ed6] shrink-0" />
+          <span className="text-[10px] sm:text-xs font-extrabold text-gray-800 leading-tight">
+            जल्दी डिलीवरी
+          </span>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5 border-l border-gray-100">
+          <Handshake className="w-6 h-6 text-[#155ed6] shrink-0" />
+          <span className="text-[10px] sm:text-xs font-extrabold text-gray-800 leading-tight">
+            विश्वसनीय सप्लायर
+          </span>
+        </div>
+        <a
+          href="tel:6203803959"
+          className="flex flex-col sm:flex-row items-center justify-center gap-1.5 border-l border-gray-100 hover:opacity-80"
+        >
+          <Headphones className="w-6 h-6 text-[#155ed6] shrink-0" />
+          <span className="text-[10px] sm:text-xs font-extrabold text-gray-800 leading-tight">
+            सहयोग हेतु कॉल करें
+          </span>
+        </a>
+      </div>
+
+      {/* Results Info Bar */}
+      <div className="flex items-center justify-between text-xs text-gray-600 px-1">
+        <span className="font-bold">
+          कुल दवाइयाँ: <span className="text-[#155ed6]">{filteredProducts.length.toLocaleString()}</span>
+        </span>
+        {search && (
+          <button onClick={() => setSearch('')} className="text-red-600 font-bold hover:underline">
+            सर्च हटाएं ✕
+          </button>
+        )}
+      </div>
+
+      {/* 5. PRODUCT GRID (2 cols on mobile, 3-4 on larger screens) */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-            <div key={n} className="bg-white h-72 rounded-md animate-pulse border border-gray-200" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <div key={n} className="bg-white h-60 rounded-xl animate-pulse border border-gray-200" />
           ))}
         </div>
       ) : paginatedProducts.length === 0 ? (
-        <div className="bg-white p-12 text-center rounded-md shadow-sm border">
-          <p className="text-gray-600 font-medium">"{search}" se milti-julti koi medicine nahi mili.</p>
-          <p className="text-xs text-gray-400 mt-1">Salt / Composition name ya "All" category try karein.</p>
+        <div className="bg-white p-10 text-center rounded-xl shadow-sm border">
+          <p className="text-gray-700 font-bold">"{search}" नाम से कोई दवा नहीं मिली।</p>
+          <p className="text-xs text-gray-400 mt-1">सॉल्ट (Composition) या "सभी दवाइयाँ" पर क्लिक करके देखें।</p>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
             {paginatedProducts.map((item) => (
               <ProductCard key={item.id} item={item} />
             ))}
           </div>
 
-          {/* Pagination Controls */}
+          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="bg-white p-3 rounded-md shadow-sm border flex items-center justify-between text-xs font-bold mt-6">
+            <div className="bg-white p-3 rounded-xl shadow-sm border flex items-center justify-between text-xs font-bold mt-4">
               <button
                 disabled={currentPage === 1}
                 onClick={() => {
                   setCurrentPage((p) => Math.max(1, p - 1));
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="flex items-center gap-1 px-3 py-2 rounded-sm border bg-gray-50 hover:bg-gray-100 disabled:opacity-40"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100 disabled:opacity-40"
               >
-                <ChevronLeft className="w-4 h-4" /> Previous
+                <ChevronLeft className="w-4 h-4" /> पिछला पेज
               </button>
 
               <span className="text-gray-700">
-                Page <span className="text-[#2874f0]">{currentPage}</span> of {totalPages} ({filteredProducts.length.toLocaleString()} Medicines)
+                पेज <span className="text-[#155ed6]">{currentPage}</span> / {totalPages}
               </span>
 
               <button
@@ -266,9 +334,9 @@ export default function StorePage({ search }: StorePageProps) {
                   setCurrentPage((p) => Math.min(totalPages, p + 1));
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="flex items-center gap-1 px-3 py-2 rounded-sm border bg-gray-50 hover:bg-gray-100 disabled:opacity-40"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border bg-gray-50 hover:bg-gray-100 disabled:opacity-40"
               >
-                Next <ChevronRight className="w-4 h-4" />
+                अगला पेज <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           )}
