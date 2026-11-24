@@ -14,6 +14,7 @@ import {
   MapPin,
   ReceiptText,
   Sparkles,
+  Wallet,
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useCart } from '../context/CartContext';
@@ -31,46 +32,27 @@ const STORE_PAYEE_NAME = 'RMP Store';
 
 type UpiAppOption = 'PHONEPE' | 'GPAY' | 'PAYTM' | 'BHIM_QR';
 
-/* --- Real Brand Logos via Official CDN (Zero Package Install Needed) --- */
-const PhonePeLogo = () => (
-  <div className="w-9 h-9 rounded-xl bg-[#5F259F] flex items-center justify-center shrink-0 shadow-xs p-1.5">
-    <img
-      src="https://cdn.simpleicons.org/phonepe/FFFFFF"
-      alt="PhonePe"
-      className="w-full h-full object-contain"
-    />
-  </div>
-);
+/* --- Local Uploaded Brand Logo Component with Safe Fallback --- */
+const BrandLogo = ({ src, alt, fallbackText }: { src: string; alt: string; fallbackText: string }) => {
+  const [imgError, setImgError] = useState(false);
 
-const GPayLogo = () => (
-  <div className="w-9 h-9 rounded-xl bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-xs p-1.5">
-    <img
-      src="https://cdn.simpleicons.org/googlepay"
-      alt="Google Pay"
-      className="w-full h-full object-contain"
-    />
-  </div>
-);
-
-const PaytmLogo = () => (
-  <div className="w-9 h-9 rounded-xl bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-xs p-1">
-    <img
-      src="https://cdn.simpleicons.org/paytm/00BAF2"
-      alt="Paytm"
-      className="w-full h-full object-contain"
-    />
-  </div>
-);
-
-const BhimUpiLogo = () => (
-  <div className="w-9 h-9 rounded-xl bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-xs p-1.5">
-    <img
-      src="https://cdn.simpleicons.org/upi"
-      alt="UPI"
-      className="w-full h-full object-contain"
-    />
-  </div>
-);
+  return (
+    <div className="w-9 h-9 rounded-xl bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden p-1">
+      {!imgError ? (
+        <img
+          src={src}
+          alt={alt}
+          onError={() => setImgError(true)}
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <span className="text-[10px] font-black text-[#2874f0] tracking-tighter">
+          {fallbackText}
+        </span>
+      )}
+    </div>
+  );
+};
 
 export default function PaymentPage({ delivery, setActiveView }: PaymentPageProps) {
   const { cart, clearCart, subtotal, gstTotal, grandTotal } = useCart();
@@ -187,7 +169,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
       name: 'PhonePe',
       tag: 'FASTEST',
       subtitle: 'Pay directly via PhonePe UPI',
-      icon: <PhonePeLogo />,
+      icon: <BrandLogo src="/logos/phonepe.png" alt="PhonePe" fallbackText="Pe" />,
       deepLink: phonePeLink,
       btnColor: 'bg-[#5F259F] hover:bg-[#4d1d82]',
     },
@@ -195,7 +177,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
       id: 'GPAY',
       name: 'Google Pay',
       subtitle: 'Instant payment via GPay UPI',
-      icon: <GPayLogo />,
+      icon: <BrandLogo src="/logos/gpay.png" alt="Google Pay" fallbackText="GPay" />,
       deepLink: gpayLink,
       btnColor: 'bg-[#1a73e8] hover:bg-[#1557b0]',
     },
@@ -203,7 +185,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
       id: 'PAYTM',
       name: 'Paytm UPI',
       subtitle: 'Pay using Paytm Wallet or UPI',
-      icon: <PaytmLogo />,
+      icon: <BrandLogo src="/logos/paytm.png" alt="Paytm" fallbackText="Paytm" />,
       deepLink: paytmLink,
       btnColor: 'bg-[#00BAF2] hover:bg-[#009ecd]',
     },
@@ -211,7 +193,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
       id: 'BHIM_QR',
       name: 'Other UPI Apps / BHIM',
       subtitle: 'BHIM, Amazon Pay, CRED, WhatsApp',
-      icon: <BhimUpiLogo />,
+      icon: <BrandLogo src="/logos/bhim.png" alt="BHIM UPI" fallbackText="UPI" />,
       deepLink: genericUpiLink,
       btnColor: 'bg-[#097939] hover:bg-[#075e2c]',
     },
@@ -304,7 +286,7 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
           }`}
         >
           <div className="flex items-center gap-2.5">
-            <BhimUpiLogo />
+            <BrandLogo src="/logos/bhim.png" alt="UPI" fallbackText="UPI" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-extrabold text-gray-900">UPI</span>
