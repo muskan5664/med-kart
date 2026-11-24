@@ -17,12 +17,21 @@ const CartContext = createContext<CartContextType>({} as CartContextType);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>(() => {
-    const saved = localStorage.getItem('medkart_b2b_cart');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('medkart_b2b_cart');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('medkart_b2b_cart', JSON.stringify(cart));
+    try {
+      localStorage.setItem('medkart_b2b_cart', JSON.stringify(cart));
+    } catch {
+      /* storage full/blocked: ignore */
+    }
   }, [cart]);
 
   const addToCart = (product: Medicine) => {
