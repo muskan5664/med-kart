@@ -5,6 +5,8 @@ import { CartProvider, useCart } from './context/CartContext';
 import Navbar, { PageView } from './components/Navbar';
 import StorePage from './pages/StorePage';
 import CartPage from './pages/CartPage';
+import AddressPage, { DeliveryDetails } from './pages/AddressPage';
+import PaymentPage from './pages/PaymentPage';
 import OrdersPage from './pages/OrdersPage';
 import AuthPage from './pages/AuthPage';
 import AdminPanel from './components/AdminPanel';
@@ -12,6 +14,13 @@ import AdminPanel from './components/AdminPanel';
 function MainAppContent() {
   const [search, setSearch] = useState<string>('');
   const [activeView, setActiveView] = useState<PageView>('store');
+  const [delivery, setDelivery] = useState<DeliveryDetails>({
+    doctorName: '',
+    clinicName: '',
+    phone: '',
+    address: ''
+  });
+
   const { totalItems } = useCart();
   const { user, isAdmin } = useAuth();
 
@@ -43,13 +52,19 @@ function MainAppContent() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-4 py-3 sm:py-5">
         {activeView === 'store' && (
-          <StorePage
-            search={search}
-            setSearch={setSearch}
+          <StorePage search={search} setSearch={setSearch} setActiveView={setActiveView} />
+        )}
+        {activeView === 'cart' && <CartPage setActiveView={setActiveView} />}
+        {activeView === 'address' && (
+          <AddressPage
+            delivery={delivery}
+            setDelivery={setDelivery}
             setActiveView={setActiveView}
           />
         )}
-        {activeView === 'cart' && <CartPage setActiveView={setActiveView} />}
+        {activeView === 'payment' && (
+          <PaymentPage delivery={delivery} setActiveView={setActiveView} />
+        )}
         {activeView === 'orders' && <OrdersPage />}
         {activeView === 'auth' && <AuthPage setActiveView={setActiveView} />}
         {activeView === 'admin' && <AdminPanel />}
@@ -84,7 +99,9 @@ function MainAppContent() {
           type="button"
           onClick={() => setActiveView('cart')}
           className={`flex flex-col items-center justify-center gap-0.5 ${
-            activeView === 'cart' ? 'text-[#155ed6]' : 'text-gray-700'
+            activeView === 'cart' || activeView === 'address' || activeView === 'payment'
+              ? 'text-[#155ed6]'
+              : 'text-gray-700'
           }`}
         >
           <div className="relative">
