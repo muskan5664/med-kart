@@ -1,40 +1,120 @@
 import React, { useState } from 'react';
-import { AuthProvider } from './context/AuthContext';
-import { CartProvider } from './context/CartContext';
+import { Home, LayoutGrid, ShoppingCart, Headphones, MoreHorizontal } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { CartProvider, useCart } from './context/CartContext';
 import Navbar, { PageView } from './components/Navbar';
 import StorePage from './pages/StorePage';
 import CartPage from './pages/CartPage';
-import AuthPage from './pages/AuthPage';
 import OrdersPage from './pages/OrdersPage';
+import AuthPage from './pages/AuthPage';
 import AdminPanel from './components/AdminPanel';
 
-export default function App() {
-  const [search, setSearch] = useState('');
+function MainAppContent() {
+  const [search, setSearch] = useState<string>('');
   const [activeView, setActiveView] = useState<PageView>('store');
+  const { totalItems } = useCart();
+  const { user, isAdmin } = useAuth();
 
+  const handleCategoryJump = () => {
+    setActiveView('store');
+    setTimeout(() => {
+      document.getElementById('category-strip')?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  const handleMoreClick = () => {
+    if (isAdmin) {
+      setActiveView('admin');
+    } else if (user) {
+      setActiveView('orders');
+    } else {
+      setActiveView('auth');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f1f5f9] flex flex-col font-sans text-gray-900">
+      <Navbar
+        search={search}
+        setSearch={setSearch}
+        activeView={activeView}
+        setActiveView={setActiveView}
+      />
+
+      <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-4 py-3 sm:py-5">
+        {activeView === 'store' && <StorePage search={search} setSearch={setSearch} />}
+        {activeView === 'cart' && <CartPage setActiveView={setActiveView} />}
+        {activeView === 'orders' && <OrdersPage />}
+        {activeView === 'auth' && <AuthPage setActiveView={setActiveView} />}
+        {activeView === 'admin' && <AdminPanel />}
+      </main>
+
+      {/* Bottom Fixed Mobile Navigation Bar (Matching Screenshot) */}
+      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 shadow-lg z-40 grid grid-cols-5 py-1.5 text-[11px] font-bold">
+        <button
+          onClick={() => setActiveView('store')}
+          className={`flex flex-col items-center justify-center gap-0.5 ${
+            activeView === 'store' ? 'text-[#155ed6]' : 'text-gray-600'
+          }`}
+        >
+          <Home className="w-5 h-5" />
+          <span>होम</span>
+        </button>
+
+        <button
+          onClick={handleCategoryJump}
+          className="flex flex-col items-center justify-center gap-0.5 text-gray-600 hover:text-[#155ed6]"
+        >
+          <LayoutGrid className="w-5 h-5" />
+          <span>कैटेगरी</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('cart')}
+          className={`relative flex flex-col items-center justify-center gap-0.5 ${
+            activeView === 'cart' ? 'text-[#155ed6]' : 'text-gray-600'
+          }`}
+        >
+          <div className="relative">
+            <ShoppingCart className="w-5 h-5" />
+            <span className="absolute -top-1.5 -right-2.5 bg-red-600 text-white text-[10px] font-extrabold px-1.5 rounded-full">
+              {totalItems}
+            </span>
+          </div>
+          <span>कार्ट</span>
+        </button>
+
+        <a
+          href="https://wa.me/916203803959"
+          target="_blank"
+          rel="noreferrer"
+          className="flex flex-col items-center justify-center gap-0.5 text-gray-600 hover:text-[#19a84b]"
+        >
+          <Headphones className="w-5 h-5" />
+          <span>सपोर्ट</span>
+        </a>
+
+        <button
+          onClick={handleMoreClick}
+          className={`flex flex-col items-center justify-center gap-0.5 ${
+            activeView === 'admin' || activeView === 'orders' || activeView === 'auth'
+              ? 'text-[#155ed6]'
+              : 'text-gray-600'
+          }`}
+        >
+          <MoreHorizontal className="w-5 h-5" />
+          <span>और अधिक</span>
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+export default function App() {
   return (
     <AuthProvider>
       <CartProvider>
-        <div className="min-h-screen bg-[#f1f3f6] font-sans text-gray-900 flex flex-col">
-          <Navbar
-            search={search}
-            setSearch={setSearch}
-            activeView={activeView}
-            setActiveView={setActiveView}
-          />
-
-          <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 py-5">
-            {activeView === 'store' && <StorePage search={search} />}
-            {activeView === 'cart' && <CartPage setActiveView={setActiveView} />}
-            {activeView === 'auth' && <AuthPage setActiveView={setActiveView} />}
-            {activeView === 'orders' && <OrdersPage />}
-            {activeView === 'admin' && <AdminPanel />}
-          </main>
-
-          <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500 mt-10">
-            MedKart B2B Wholesale Pharma Portal • Exclusively for Registered Medical Practitioners (RMP)
-          </footer>
-        </div>
+        <MainAppContent />
       </CartProvider>
     </AuthProvider>
   );
