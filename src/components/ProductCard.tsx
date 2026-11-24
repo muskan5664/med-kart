@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Minus, Building2, Calendar, PackageCheck, Pill } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, Pill } from 'lucide-react';
 import { Medicine } from '../types';
 import { useCart } from '../context/CartContext';
 
@@ -11,111 +11,84 @@ export default function ProductCard({ item }: ProductCardProps) {
   const { cart, addToCart, updateQty } = useCart();
   const inCart = cart.find((c) => c.id === item.id);
 
-  const marginPercent = Math.round(((item.mrp - item.ptr) / item.mrp) * 100);
-  const profitPerUnit = (item.mrp - item.ptr).toFixed(2);
-
   return (
-    <div className="bg-white rounded-md shadow-sm hover:shadow-lg transition-all duration-200 p-4 flex flex-col justify-between border border-gray-200/80 group">
+    <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 border border-gray-200 overflow-hidden flex flex-col justify-between">
       <div>
-        {/* Top Badges: Category & Profit Margin */}
-        <div className="flex justify-between items-center gap-2 mb-2.5">
-          <span className="text-[11px] bg-blue-50 text-[#2874f0] px-2.5 py-0.5 rounded-sm font-semibold uppercase tracking-wider">
-            {item.category}
-          </span>
-          <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-sm font-bold">
-            {marginPercent}% Margin (Save ₹{profitPerUnit})
-          </span>
-        </div>
-
-        {/* Medicine Product Image */}
-        <div className="w-full h-36 bg-gray-50 rounded-sm mb-3 flex items-center justify-center overflow-hidden border border-gray-100">
+        {/* Product Image Box */}
+        <div className="w-full h-28 sm:h-36 bg-gradient-to-b from-slate-50 to-white flex items-center justify-center p-2 border-b border-gray-100 relative">
           {item.imageUrl ? (
             <img
               src={item.imageUrl}
               alt={item.name}
-              className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-200"
+              className="w-full h-full object-contain"
             />
           ) : (
-            <div className="flex flex-col items-center text-gray-300">
-              <Pill className="w-10 h-10 mb-1" />
-              <span className="text-[10px] font-medium text-gray-400">No Image</span>
+            <div className="flex flex-col items-center justify-center text-blue-200">
+              <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center">
+                <Pill className="w-6 h-6 text-[#155ed6]" />
+              </div>
+              <span className="text-[9px] font-bold text-gray-400 mt-1 uppercase">{item.category}</span>
             </div>
           )}
+
+          {/* Company / Pack Tag */}
+          <span className="absolute top-1.5 right-1.5 bg-blue-50 text-[#155ed6] text-[9px] font-bold px-1.5 py-0.5 rounded">
+            {item.packing || '1 Strip'}
+          </span>
         </div>
 
-        {/* Brand & Salt Name */}
-        <h3 className="font-bold text-gray-900 text-base group-hover:text-[#2874f0] transition-colors line-clamp-1">
-          {item.name}
-        </h3>
-        <p className="text-xs text-gray-600 font-medium mt-0.5 line-clamp-1" title={item.salt}>
-          {item.salt}
-        </p>
+        {/* Name, Composition & Price */}
+        <div className="p-2.5 sm:p-3">
+          <h3 className="font-extrabold text-gray-900 text-xs sm:text-sm leading-snug line-clamp-1" title={item.name}>
+            {item.name}
+          </h3>
+          <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1" title={item.salt}>
+            {item.salt}
+          </p>
 
-        {/* Meta Info */}
-        <div className="mt-2.5 space-y-1 text-[11px] text-gray-500 bg-gray-50 p-2 rounded">
-          <div className="flex items-center gap-1.5">
-            <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <span className="truncate">{item.company}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1">
-              <PackageCheck className="w-3.5 h-3.5 text-gray-400" />
-              {item.packing || '1 Strip'}
+          {/* Price Row matching RMP Store screenshot */}
+          <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
+            <span className="text-base sm:text-lg font-extrabold text-[#155ed6]">
+              ₹{item.ptr.toFixed(2)}
             </span>
-            <span className="flex items-center gap-1 text-amber-700 font-medium">
-              <Calendar className="w-3.5 h-3.5" />
-              Exp: {item.expiry}
+            <span className="text-[11px] text-gray-400 line-through">
+              MRP ₹{item.mrp.toFixed(2)}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Pricing & Bulk Add Controls */}
-      <div className="mt-4 pt-3 border-t border-gray-100">
-        <div className="flex items-baseline justify-between mb-3">
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-xl font-extrabold text-gray-900">₹{item.ptr.toFixed(2)}</span>
-              <span className="text-xs text-gray-400 line-through">MRP ₹{item.mrp.toFixed(2)}</span>
-            </div>
-            <span className="text-[10px] text-gray-500">
-              RMP Rate (PTR) + {item.gst || 12}% GST
-            </span>
-          </div>
-          <span className="text-[11px] font-semibold text-green-600">
-            {item.stock > 0 ? 'In Stock' : 'Out of Stock'}
-          </span>
-        </div>
-
+      {/* Bottom Green Cart Button */}
+      <div className="p-2 pt-0">
         {inCart ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-sm p-1">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between bg-emerald-50 border border-emerald-300 rounded-lg p-1">
               <button
                 onClick={() => updateQty(item.id, -1)}
-                className="p-1.5 bg-white rounded-sm shadow-sm text-[#2874f0] hover:bg-blue-100"
+                className="p-1 bg-white rounded shadow-sm text-emerald-700 hover:bg-emerald-100"
               >
-                <Minus className="w-4 h-4" />
+                <Minus className="w-3.5 h-3.5" />
               </button>
-              <span className="font-bold text-blue-950 text-sm">{inCart.qty} Units</span>
+              <span className="font-extrabold text-emerald-900 text-xs">{inCart.qty} यूनिट</span>
               <button
                 onClick={() => updateQty(item.id, 1)}
-                className="p-1.5 bg-white rounded-sm shadow-sm text-[#2874f0] hover:bg-blue-100"
+                className="p-1 bg-white rounded shadow-sm text-emerald-700 hover:bg-emerald-100"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-1">
               <button
                 onClick={() => updateQty(item.id, 5)}
-                className="text-[11px] font-bold py-1 bg-gray-100 hover:bg-blue-100 text-gray-700 hover:text-[#2874f0] rounded-sm transition"
+                className="text-[10px] font-bold py-0.5 bg-gray-100 hover:bg-blue-50 text-gray-700 rounded"
               >
-                +5 More
+                +5 और
               </button>
               <button
                 onClick={() => updateQty(item.id, 10)}
-                className="text-[11px] font-bold py-1 bg-gray-100 hover:bg-blue-100 text-gray-700 hover:text-[#2874f0] rounded-sm transition"
+                className="text-[10px] font-bold py-0.5 bg-gray-100 hover:bg-blue-50 text-gray-700 rounded"
               >
-                +10 Box
+                +10 बॉक्स
               </button>
             </div>
           </div>
@@ -123,9 +96,10 @@ export default function ProductCard({ item }: ProductCardProps) {
           <button
             disabled={item.stock <= 0}
             onClick={() => addToCart(item)}
-            className="w-full bg-[#fb641b] hover:bg-[#e85810] disabled:bg-gray-300 text-white font-bold py-2.5 rounded-sm text-sm shadow-sm transition uppercase tracking-wide"
+            className="w-full bg-[#249b3e] hover:bg-[#1e8334] disabled:bg-gray-300 text-white font-bold py-2 px-2 rounded-lg text-xs sm:text-sm shadow-sm flex items-center justify-center gap-1.5 transition"
           >
-            {item.stock > 0 ? 'Add to Order' : 'Out of Stock'}
+            <ShoppingCart className="w-3.5 h-3.5 fill-current" />
+            <span>{item.stock > 0 ? 'कार्ट में डालें' : 'स्टॉक खत्म'}</span>
           </button>
         )}
       </div>
