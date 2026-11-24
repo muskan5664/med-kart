@@ -65,35 +65,65 @@ function detectCategory(name: string, salt: string, company: string): string {
   return 'Tablets & Caps';
 }
 
-const compressMedicineImage = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
+const loadImage = (src: string, cors: boolean): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    if (cors) img.crossOrigin = 'anonymous';
+    img.referrerPolicy = 'no-referrer';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Image load failed'));
+    img.src = src;
+  });
+
+// Any format (png/jpg/webp/gif...) -> small JPEG data URL (white background for transparent images)
+const imageToJpegDataUrl = (img: HTMLImageElement): string => {
+  const MAX_SIZE = 450;
+  let width = img.naturalWidth || img.width;
+  let height = img.naturalHeight || img.height;
+  if (width > height && width > MAX_SIZE) {
+    height *= MAX_SIZE / width;
+    width = MAX_SIZE;
+  } else if (height > MAX_SIZE) {
+    width *= MAX_SIZE / height;
+    height = MAX_SIZE;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas not supported');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.75);
+};
+
+const compressMedicineImage = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_SIZE = 450;
-        let width = img.width;
-        let height = img.height;
-        if (width > height && width > MAX_SIZE) {
-          height *= MAX_SIZE / width;
-          width = MAX_SIZE;
-        } else if (height > MAX_SIZE) {
-          width *= MAX_SIZE / height;
-          height = MAX_SIZE;
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.72));
-      };
-      img.onerror = reject;
+    reader.onload = async () => {
+      try {
+        const img = await loadImage(reader.result as string, false);
+        resolve(imageToJpegDataUrl(img));
+      } catch (err) {
+        reject(err);
+      }
     };
     reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
+
+// Share/page links -> direct image links
+const normalizeImageUrl = (raw: string): string => {
+  let u = raw.trim();
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u.replace(/^\/+/, '');
+  const drive = u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]+)/);
+  if (drive) return `https://drive.google.com/thumbnail?id=${drive[1]}&sz=w600`;
+  if (/dropbox\.com/i.test(u)) return u.replace(/([?&])dl=0/, '$1raw=1');
+  const imgur = u.match(/^https?:\/\/(?:www\.)?imgur\.com\/([A-Za-z0-9]+)\/?$/);
+  if (imgur) return `https://i.imgur.com/${imgur[1]}.jpg`;
+  return u;
 };
 
 export default function AdminPanel() {
@@ -122,6 +152,8 @@ export default function AdminPanel() {
   const ADMIN_PAGE_SIZE = 20;
   const [medForm, setMedForm] = useState(EMPTY_MED);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [imageLink, setImageLink] = useState('');
+  const [imageState, setImageState] = useState<{ status: 'idle' | 'loading' | 'ok' | 'error'; msg: string }>({ status: 'idle', msg: '' });
 
   // RMP Doctors States
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
@@ -319,12 +351,39 @@ export default function AdminPanel() {
     }
   };
 
+  // Any image link (png/jpg/webp/share links) -> fetched, converted to small JPEG, stored with the product
+  const importImageFromLink = async (raw: string): Promise<string | null> => {
+    const url = normalizeImageUrl(raw);
+    if (!url) return null;
+    setImageState({ status: 'loading', msg: 'Image la rahe hain…' });
+    const proxied = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=450&h=450&fit=inside&output=jpg&q=75`;
+    for (const src of [url, proxied]) {
+      try {
+        const img = await loadImage(src, true);
+        const dataUrl = imageToJpegDataUrl(img);
+        setMedForm((prev) => ({ ...prev, imageUrl: dataUrl }));
+        setImageLink('');
+        setImageState({ status: 'ok', msg: 'Image add ho gayi ✓' });
+        return dataUrl;
+      } catch {
+        /* try next source */
+      }
+    }
+    setImageState({
+      status: 'error',
+      msg: 'Is link se image nahi mili. Image par right-click → "Copy image address" wala link daalein, ya upar se file upload karein.'
+    });
+    return null;
+  };
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const compressed = await compressMedicineImage(file);
       setMedForm((prev) => ({ ...prev, imageUrl: compressed }));
+      setImageLink('');
+      setImageState({ status: 'ok', msg: 'Image add ho gayi ✓' });
     } catch {
       alert('Image upload failed.');
     }
@@ -338,6 +397,12 @@ export default function AdminPanel() {
     if (![medForm.mrp, medForm.ptr, medForm.gst, medForm.stock].every((v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0)) {
       return alert('MRP, PTR, GST aur Stock sahi number hone chahiye.');
     }
+    let finalImage = medForm.imageUrl;
+    if (imageLink.trim()) {
+      const got = await importImageFromLink(imageLink);
+      if (got) finalImage = got;
+      else if (!window.confirm('Image link load nahi hui. Bina nayi image ke save karein?')) return;
+    }
     const payload = {
       name: medForm.name.trim(),
       salt: medForm.salt.trim(),
@@ -349,7 +414,7 @@ export default function AdminPanel() {
       stock: Number(medForm.stock),
       expiry: medForm.expiry.trim(),
       packing: medForm.packing.trim(),
-      imageUrl: medForm.imageUrl || '',
+      imageUrl: finalImage || '',
       hidden: false
     };
 
@@ -367,11 +432,15 @@ export default function AdminPanel() {
 
     setMedForm(EMPTY_MED);
     setEditingId(null);
+    setImageLink('');
+    setImageState({ status: 'idle', msg: '' });
     loadCatalog();
   };
 
   const startEditMedicine = (p: Medicine) => {
     setEditingId(p.id);
+    setImageLink('');
+    setImageState({ status: 'idle', msg: '' });
     setMedForm({
       name: p.name,
       salt: p.salt,
@@ -585,7 +654,7 @@ export default function AdminPanel() {
       {/* ==================== CATALOG ==================== */}
       {activeTab === 'catalog' && (
         <div className="grid lg:grid-cols-[380px_1fr] gap-6 items-start">
-          <form onSubmit={handleSaveMedicine} className="bg-white rounded-2xl border border-slate-200 shadow-sm lg:sticky lg:top-24 overflow-hidden">
+          <form onSubmit={handleSaveMedicine} className="bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="flex justify-between items-center px-5 py-4 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <span className="w-8 h-8 rounded-lg bg-teal-50 text-brand flex items-center justify-center">
@@ -619,7 +688,34 @@ export default function AdminPanel() {
                   )}
                   <div className="flex-1 min-w-0 space-y-2">
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-brand hover:file:bg-teal-100" />
-                    <input type="text" placeholder="…ya image URL paste karein" className={`${inputCls} h-9 text-xs`} value={medForm.imageUrl.startsWith('data:') ? '' : medForm.imageUrl} onChange={(e) => setMedForm({ ...medForm, imageUrl: e.target.value })} />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="url"
+                        placeholder="…ya image ka link paste karein (png/jpg/webp)"
+                        className={`${inputCls} h-9 text-xs`}
+                        value={imageLink}
+                        onChange={(e) => { setImageLink(e.target.value); if (imageState.status !== 'idle') setImageState({ status: 'idle', msg: '' }); }}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData('text');
+                          if (text.trim()) { e.preventDefault(); setImageLink(text.trim()); importImageFromLink(text); }
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); importImageFromLink(imageLink); } }}
+                      />
+                      <button
+                        type="button"
+                        disabled={!imageLink.trim() || imageState.status === 'loading'}
+                        onClick={() => importImageFromLink(imageLink)}
+                        className="h-9 px-3 rounded-lg bg-brand text-white text-xs font-bold disabled:opacity-40 shrink-0"
+                      >
+                        {imageState.status === 'loading' ? '…' : 'Lo'}
+                      </button>
+                    </div>
+                    {imageState.msg && (
+                      <p className={`text-[11px] font-semibold ${imageState.status === 'error' ? 'text-red-600' : imageState.status === 'ok' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                        {imageState.msg}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -656,11 +752,11 @@ export default function AdminPanel() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className={labelCls}>MRP (₹) *</label>
-                    <input type="number" step="0.01" required placeholder="120" className={inputCls} value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
+                    <input type="number" step="any" min="0" required placeholder="120" className={inputCls} value={medForm.mrp} onChange={(e) => setMedForm({ ...medForm, mrp: e.target.value })} />
                   </div>
                   <div>
                     <label className={labelCls}>PTR (₹) *</label>
-                    <input type="number" step="0.01" required placeholder="78" className={inputCls} value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
+                    <input type="number" step="any" min="0" required placeholder="78" className={inputCls} value={medForm.ptr} onChange={(e) => setMedForm({ ...medForm, ptr: e.target.value })} />
                   </div>
                   <div>
                     <label className={labelCls}>GST</label>
@@ -694,7 +790,7 @@ export default function AdminPanel() {
               </div>
             </div>
 
-            <div className="px-5 py-4 bg-slate-50 border-t border-slate-100">
+            <div className="sticky bottom-[64px] lg:bottom-0 z-10 px-5 py-3 bg-white/95 backdrop-blur border-t border-slate-200 rounded-b-2xl shadow-[0_-6px_12px_-8px_rgba(15,23,42,0.18)]">
               <button type="submit" className="w-full h-11 bg-brand hover:bg-brand-dark text-white font-bold rounded-xl text-sm shadow-sm transition active:scale-[0.99]">
                 {editingId ? 'Update medicine' : 'Save medicine'}
               </button>
