@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { addDoc, collection } from 'firebase/firestore';
 import { Wallet, ShieldCheck, ArrowLeft, Copy, Check } from 'lucide-react';
 import { db } from '../lib/firebase';
@@ -24,10 +24,11 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [placing, setPlacing] = useState(false);
 
-  if (cart.length === 0) {
-    setActiveView('cart');
-    return null;
-  }
+  useEffect(() => {
+    if (cart.length === 0 && !placing) setActiveView('cart');
+  }, [cart.length, placing, setActiveView]);
+
+  if (cart.length === 0) return null;
 
   // Direct UPI Deep Links
   const upiParams = `pa=${encodeURIComponent(STORE_UPI_ID)}&pn=${encodeURIComponent(
@@ -69,8 +70,12 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
       return setActiveView('address');
     }
 
+    if (profile && !profile.verified) {
+      return alert('आपका RMP अकाउंट अभी वेरिफाई नहीं हुआ है। वेरिफिकेशन के बाद ही ऑर्डर हो पाएगा — सपोर्ट से संपर्क करें।');
+    }
+
     if (paymentMode === 'UPI_QR') {
-      if (!utrNumber.trim() || utrNumber.trim().length < 6) {
+      if (!/^\d{12}$/.test(utrNumber.trim())) {
         return alert('UPI ऐप से पेमेंट करने के बाद 12 अंकों का UTR / Ref No. जरूर डालें!');
       }
     }
@@ -90,15 +95,15 @@ export default function PaymentPage({ delivery, setActiveView }: PaymentPageProp
         gstTotal: Number(gstTotal.toFixed(2)),
         grandTotal,
         paymentMode,
-        paymentStatus: paymentMode === 'UPI_QR' ? 'Paid' : 'Pending',
+        paymentStatus: 'Pending', // admin verifies UTR and marks Paid
         utrNumber: paymentMode === 'UPI_QR' ? utrNumber.trim() : 'COD',
         status: 'Confirmed',
         createdAt: new Date().toISOString()
       });
 
+      setActiveView('orders');
       clearCart();
       alert('ऑर्डर सफलतापूर्वक दर्ज हो गया है! आप "ऑर्डर देखें" में लाइव स्टेटस ट्रैक कर सकते हैं।');
-      setActiveView('orders');
     } catch (err: any) {
       alert('Order save error: ' + err.message);
     } finally {
