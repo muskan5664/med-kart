@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ArrowLeft,
   ShoppingCart,
@@ -33,10 +33,12 @@ export default function ProductDetailModal({
 }: ProductDetailModalProps) {
   const { cart, addToCart, updateQty, totalItems } = useCart();
   const { profile } = useAuth();
+  const [imgFailed, setImgFailed] = useState(false);
 
   const inCart = cart.find((c) => c.id === item.id);
   const marginPercent = Math.max(0, Math.round(((item.mrp - item.ptr) / item.mrp) * 100));
   const profitPerUnit = Math.max(0, item.mrp - item.ptr).toFixed(2);
+  const showImage = Boolean(item.imageUrl) && !imgFailed;
 
   const handleBuyNow = () => {
     if (!inCart) {
@@ -122,10 +124,11 @@ export default function ProductDetailModal({
           </div>
 
           <div className="w-full h-64 sm:h-72 flex items-center justify-center my-1">
-            {item.imageUrl ? (
+            {showImage ? (
               <img
                 src={item.imageUrl}
                 alt={item.name}
+                onError={() => setImgFailed(true)}
                 className="max-h-full max-w-full object-contain"
               />
             ) : (
@@ -190,7 +193,7 @@ export default function ProductDetailModal({
             )}
           </div>
 
-          {/* Bulk Order Quick Add Buttons for Clinic */}
+          {/* Bulk Order Quick Add Buttons */}
           <div className="pt-1">
             <p className="text-xs font-extrabold text-gray-700 mb-2">
               थोक मात्रा चुनें (Quick Bulk Add):
@@ -266,7 +269,7 @@ export default function ProductDetailModal({
         </div>
       </div>
 
-      {/* 5. Sticky Bottom RMP Store Action Bar (Green Add to Cart + Blue Order Now) */}
+      {/* 5. Sticky Bottom Action Bar */}
       <div
         style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 10001 }}
         className="bg-white border-t border-gray-200 p-2.5 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
