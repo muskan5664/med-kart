@@ -17,7 +17,7 @@ declare global {
 }
 
 // APNA REAL UPI ID AUR STORE NAME YAHAN DALEIN (QR Code isi par payment bhejega)
-const STORE_UPI_ID = "9876543210@ybl";
+const STORE_UPI_ID = "6203803959@ybl";
 const STORE_PAYEE_NAME = "MedKart B2B Pharma";
 
 export default function CartPage({ setActiveView }: CartPageProps) {
