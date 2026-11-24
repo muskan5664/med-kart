@@ -19,10 +19,13 @@ import { db } from '../lib/firebase';
 import { Medicine } from '../types';
 import { INITIAL_MEDICINES } from '../data/initialMedicines';
 import ProductCard from '../components/ProductCard';
+import ProductDetailModal from '../components/ProductDetailModal';
+import { PageView } from '../components/Navbar';
 
 interface StorePageProps {
   search: string;
   setSearch: (val: string) => void;
+  setActiveView?: (view: PageView) => void;
 }
 
 const ITEMS_PER_PAGE = 24;
@@ -37,11 +40,12 @@ function detectCategory(name: string, salt: string, company: string): string {
   return 'Tablet';
 }
 
-export default function StorePage({ search, setSearch }: StorePageProps) {
+export default function StorePage({ search, setSearch, setActiveView }: StorePageProps) {
   const [products, setProducts] = useState<Medicine[]>([]);
   const [category, setCategory] = useState<string>('All');
   const [loading, setLoading] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [selectedMed, setSelectedMed] = useState<Medicine | null>(null);
 
   useEffect(() => {
     const fetchAllMedicines = async () => {
@@ -156,10 +160,9 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
 
   return (
     <div className="space-y-3.5 pb-16">
-      {/* 1. HERO PROMO BANNER (Matching Screenshot Design) */}
+      {/* 1. HERO PROMO BANNER */}
       <div className="bg-gradient-to-r from-[#d8ecff] via-[#eef6ff] to-[#d8ecff] rounded-2xl p-3.5 sm:p-5 border border-blue-200 shadow-sm relative overflow-hidden">
         <div className="grid grid-cols-12 items-center gap-2">
-          {/* Left Doctor Visual */}
           <div className="col-span-3 sm:col-span-2 flex justify-center">
             <img
               src="https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=300&q=80"
@@ -168,7 +171,6 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
             />
           </div>
 
-          {/* Center Hindi Promo Headline */}
           <div className="col-span-6 sm:col-span-7 text-center px-1">
             <span className="inline-block bg-[#0f489c] text-white text-[11px] sm:text-xs font-extrabold px-3 py-0.5 rounded-full shadow-sm">
               RMP <span className="text-yellow-300">Store</span>
@@ -184,7 +186,6 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
             </div>
           </div>
 
-          {/* Right Checkmark Highlights */}
           <div className="col-span-3 sm:col-span-3 space-y-1.5 text-[10px] sm:text-xs font-extrabold text-[#0f387a]">
             <div className="flex items-center gap-1">
               <CheckCircle2 className="w-4 h-4 text-[#19a84b] shrink-0 fill-emerald-100" />
@@ -202,7 +203,7 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
         </div>
       </div>
 
-      {/* 2. HINDI SEARCH BAR ("दवा का नाम खोजें..." + "खोजें") */}
+      {/* 2. HINDI SEARCH BAR */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-300 flex items-center overflow-hidden">
         <div className="pl-3.5 text-gray-400">
           <Search className="w-5 h-5" />
@@ -223,7 +224,7 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
         </button>
       </div>
 
-      {/* 3. ICON CATEGORY PILLS (सभी दवाइयाँ, Tablet, Capsule, Syrup, Drops...) */}
+      {/* 3. ICON CATEGORY PILLS */}
       <div id="category-strip" className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
         {categoryTabs.map((tab) => {
           const IconComponent = tab.icon;
@@ -247,7 +248,7 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
         })}
       </div>
 
-      {/* 4. 4-COLUMN TRUST STRIP (बेस्ट रेट गारंटी, जल्दी डिलीवरी, विश्वसनीय सप्लायर, कॉल करें) */}
+      {/* 4. 4-COLUMN TRUST STRIP */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 grid grid-cols-4 gap-1.5 text-center">
         <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
           <BadgeCheck className="w-6 h-6 text-[#155ed6] shrink-0" />
@@ -290,7 +291,7 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
         )}
       </div>
 
-      {/* 5. PRODUCT GRID (2 cols on mobile, 3-4 on larger screens) */}
+      {/* 5. PRODUCT GRID */}
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -306,7 +307,11 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
             {paginatedProducts.map((item) => (
-              <ProductCard key={item.id} item={item} />
+              <ProductCard
+                key={item.id}
+                item={item}
+                onSelect={(med) => setSelectedMed(med)}
+              />
             ))}
           </div>
 
@@ -341,6 +346,18 @@ export default function StorePage({ search, setSearch }: StorePageProps) {
             </div>
           )}
         </>
+      )}
+
+      {/* Flipkart-Style Full Screen Product Detail Modal */}
+      {selectedMed && (
+        <ProductDetailModal
+          item={selectedMed}
+          onClose={() => setSelectedMed(null)}
+          onGoToCart={() => setActiveView?.('cart')}
+          onSearchClick={() => {
+            setTimeout(() => document.getElementById('main-med-search')?.focus(), 100);
+          }}
+        />
       )}
     </div>
   );
