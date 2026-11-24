@@ -12,9 +12,9 @@ import {
   Phone,
   User,
   Building,
-  ExternalLink,
   Copy,
-  Check
+  Check,
+  Smartphone
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useCart } from '../context/CartContext';
@@ -25,28 +25,21 @@ interface CartPageProps {
   setActiveView: (view: PageView) => void;
 }
 
-declare global {
-  interface Window {
-    Razorpay: any;
-  }
-}
-
-// APNA REAL UPI ID AUR STORE NAME YAHAN DALEIN
 const STORE_UPI_ID = "6203803959@ybl";
-const STORE_PAYEE_NAME = "RMP SStore
+const STORE_PAYEE_NAME = "RMP Store";
 
 export default function CartPage({ setActiveView }: CartPageProps) {
   const { cart, updateQty, removeFromCart, clearCart, subtotal, gstTotal, grandTotal } = useCart();
-  const { user, profile } = uuseAuth);
+  const { user, profile } = useAuth();
 
   // Mandatory Customer Delivery Details
   const [doctorName, setDoctorName] = useState('');
-  const [clinicName, ssetClinicName = useState('');
-  const [phone, setPhone] = uuseState'');
+  const [clinicName, setClinicName] = useState('');
+  const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
 
   // Payment States
-  const [paymentMode, setPaymentMode] = useState<'UPI_QR' | 'COD' | 'ONLINE'>('UPI_QR');
+  const [paymentMode, setPaymentMode] = useState<'UPI_QR' | 'COD'>('UPI_QR');
   const [utrNumber, setUtrNumber] = useState('');
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [placing, setPlacing] = useState(false);
@@ -63,12 +56,30 @@ export default function CartPage({ setActiveView }: CartPageProps) {
   const totalMrp = cart.reduce((sum, item) => sum + item.mrp * item.qty, 0);
   const totalMarginSavings = Math.max(0, Math.round(totalMrp - grandTotal));
 
-  // Direct UPI Intent Link (Opens PhonePe / GPay / Paytm / BHIM directly on Mobile)
-  const upiLink = `upi://pay?pa=${encodeURIComponent(STORE_UPI_ID)}&pn=${encodeURIComponent(
+  // Common UPI Query Params
+  const upiParams = `pa=${encodeURIComponent(STORE_UPI_ID)}&pn=${encodeURIComponent(
     STORE_PAYEE_NAME
-  )}&am=${grandTotal.toFixed(2)}&cu=INR&tn=${encodeURIComponent('RMP Store Order')}`;
+  )}&am=${grandTotal.toFixed(2)}&cu=INR&tn=${encodeURIComponent('RMP Store Medicine Order')}`;
 
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiLink)}`;
+  // App-specific Deep Links (Directly launches installed UPI apps on Android/iOS)
+  const genericUpiLink = `upi://pay?${upiParams}`;
+  const phonePeLink = `phonepe://pay?${upiParams}`;
+  const gpayLink = `tez://upi/pay?${upiParams}`;
+  const paytmLink = `paytmmp://pay?${upiParams}`;
+
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+    genericUpiLink
+  )}`;
+
+  const handleOpenUpiApp = (primaryUrl: string) => {
+    window.location.href = primaryUrl;
+    // Fallback to generic UPI chooser after 1.2s if specific app scheme isn't registered
+    setTimeout(() => {
+      if (document.hasFocus()) {
+        window.location.href = genericUpiLink;
+      }
+    }, 1200);
+  };
 
   const handleCopyUpi = () => {
     navigator.clipboard?.writeText(STORE_UPI_ID);
@@ -128,29 +139,6 @@ export default function CartPage({ setActiveView }: CartPageProps) {
         return alert('UPI ऐप से पेमेंट करने के बाद 12 अंकों का UTR / Transaction ID जरूर डालें!');
       }
       finalizeOrder('Paid', utrNumber.trim());
-    } else if (paymentMode === 'ONLINE') {
-      if (!window.Razorpay) {
-        alert('Razorpay configure nahi hai. Kripya UPI App / QR ya COD chunein.');
-        return;
-      }
-      const options = {
-        key: 'YOUR_RAZORPAY_KEY_ID',
-        amount: grandTotal * 100,
-        currency: 'INR',
-        name: STORE_PAYEE_NAME,
-        description: `Medicine Order - ${clinicName}`,
-        handler: function (response: any) {
-          finalizeOrder('Paid', response.razorpay_payment_id || 'RAZORPAY_PAID');
-        },
-        prefill: {
-          name: doctorName,
-          email: user.email || '',
-          contact: phone
-        },
-        theme: { color: '#155ed6' }
-      };
-      const rzp = new window.Razorpay(options);
-      rzp.open();
     } else {
       finalizeOrder('Pending', 'COD');
     }
@@ -229,7 +217,7 @@ export default function CartPage({ setActiveView }: CartPageProps) {
         ))}
       </div>
 
-      {/* Right: Customer Details + Direct UPI App Pay + Billing Summary */}
+      {/* Right: Customer Details + Direct UPI Apps + Billing Summary */}
       <div className="bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-gray-200 h-fit space-y-4">
         <h3 className="text-xs font-extrabold text-[#155ed6] uppercase tracking-wider border-b pb-2">
           1. डिलीवरी विवरण (अनिवार्य)
@@ -338,15 +326,72 @@ export default function CartPage({ setActiveView }: CartPageProps) {
             </label>
 
             {paymentMode === 'UPI_QR' && (
-              <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3 text-center space-y-2.5">
-                {/* DIRECT UPI APP LAUNCH BUTTON FOR MOBILE */}
-                <a
-                  href={upiLink}
-                  className="w-full bg-[#155ed6] hover:bg-[#0b49b8] text-white font-extrabold py-2.5 px-3 rounded-xl text-xs shadow flex items-center justify-center gap-2 transition"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>PhonePe / GPay / Paytm से ₹{grandTotal} पे करें</span>
-                </a>
+              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 text-center space-y-3">
+                <p className="text-[11px] font-extrabold text-[#0f387a]">
+                  अपना UPI ऐप चुनें (₹{grandTotal} सीधे खुलेगा):
+                </p>
+
+                {/* 4 DIRECT UPI APP LAUNCH CARDS WITH LOGOS */}
+                <div className="grid grid-cols-2 gap-2">
+                  {/* PhonePe Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUpiApp(phonePeLink)}
+                    className="flex items-center gap-2 bg-white hover:bg-purple-50 border border-purple-200 p-2 rounded-xl shadow-sm transition text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-[#5f259f] text-white font-black text-sm flex items-center justify-center shrink-0">
+                      पे
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-gray-900 text-xs">PhonePe</p>
+                      <p className="text-[10px] text-purple-700 font-bold">Pay ₹{grandTotal}</p>
+                    </div>
+                  </button>
+
+                  {/* Google Pay Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUpiApp(gpayLink)}
+                    className="flex items-center gap-2 bg-white hover:bg-blue-50 border border-blue-200 p-2 rounded-xl shadow-sm transition text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 font-black text-sm flex items-center justify-center shrink-0">
+                      <span className="text-[#4285F4]">G</span>
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-gray-900 text-xs">Google Pay</p>
+                      <p className="text-[10px] text-[#155ed6] font-bold">Pay ₹{grandTotal}</p>
+                    </div>
+                  </button>
+
+                  {/* Paytm Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUpiApp(paytmLink)}
+                    className="flex items-center gap-2 bg-white hover:bg-sky-50 border border-sky-200 p-2 rounded-xl shadow-sm transition text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-[#00baf2] text-white font-black text-[10px] flex items-center justify-center shrink-0">
+                      Paytm
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-gray-900 text-xs">Paytm</p>
+                      <p className="text-[10px] text-sky-700 font-bold">Pay ₹{grandTotal}</p>
+                    </div>
+                  </button>
+
+                  {/* Any Other UPI App Button */}
+                  <a
+                    href={genericUpiLink}
+                    className="flex items-center gap-2 bg-white hover:bg-emerald-50 border border-emerald-200 p-2 rounded-xl shadow-sm transition text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-[#249b3e] text-white flex items-center justify-center shrink-0">
+                      <Smartphone className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-gray-900 text-xs">Any UPI</p>
+                      <p className="text-[10px] text-[#249b3e] font-bold">BHIM / All</p>
+                    </div>
+                  </a>
+                </div>
 
                 <p className="text-[10px] text-gray-500 font-semibold">— या नीचे QR कोड स्कैन करें —</p>
 
@@ -356,15 +401,21 @@ export default function CartPage({ setActiveView }: CartPageProps) {
                   className="w-36 h-36 mx-auto bg-white p-1.5 rounded-lg border shadow-sm"
                 />
 
-                {/* Copy UPI ID Button */}
+                {/* Copy UPI ID Pill */}
                 <div className="flex items-center justify-center gap-1.5 text-[11px] bg-white py-1 px-2.5 rounded-lg border border-gray-200 w-fit mx-auto">
-                  <span className="text-gray-600">UPI ID: <b className="text-gray-900">{STORE_UPI_ID}</b></span>
+                  <span className="text-gray-600">
+                    UPI ID: <b className="text-gray-900">{STORE_UPI_ID}</b>
+                  </span>
                   <button
                     type="button"
                     onClick={handleCopyUpi}
                     className="text-[#155ed6] font-bold flex items-center gap-0.5 ml-1"
                   >
-                    {copiedUpi ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedUpi ? (
+                      <Check className="w-3.5 h-3.5 text-green-600" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
                   </button>
                 </div>
 
