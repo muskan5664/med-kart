@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { Home, LayoutGrid, ShoppingCart, Headphones, MoreHorizontal } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider, useCart } from './context/CartContext';
@@ -9,7 +9,7 @@ import AddressPage, { DeliveryDetails } from './pages/AddressPage';
 import PaymentPage from './pages/PaymentPage';
 import OrdersPage from './pages/OrdersPage';
 import AuthPage from './pages/AuthPage';
-import AdminPanel from './components/AdminPanel';
+const AdminPanel = lazy(() => import('./components/AdminPanel'));
 
 function MainAppContent() {
   const [search, setSearch] = useState<string>('');
@@ -67,7 +67,11 @@ function MainAppContent() {
         )}
         {activeView === 'orders' && <OrdersPage />}
         {activeView === 'auth' && <AuthPage setActiveView={setActiveView} />}
-        {activeView === 'admin' && <AdminPanel />}
+        {activeView === 'admin' && (
+          <Suspense fallback={<div className="p-8 text-center text-gray-500">Admin panel load ho raha hai...</div>}>
+            <AdminPanel />
+          </Suspense>
+        )}
       </main>
 
       {/* Bottom Fixed Navigation Bar */}
