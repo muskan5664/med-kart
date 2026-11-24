@@ -42,7 +42,13 @@ function MainAppContent() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-4 py-3 sm:py-5">
-        {activeView === 'store' && <StorePage search={search} setSearch={setSearch} />}
+        {activeView === 'store' && (
+          <StorePage
+            search={search}
+            setSearch={setSearch}
+            setActiveView={setActiveView}
+          />
+        )}
         {activeView === 'cart' && <CartPage setActiveView={setActiveView} />}
         {activeView === 'orders' && <OrdersPage />}
         {activeView === 'auth' && <AuthPage setActiveView={setActiveView} />}
